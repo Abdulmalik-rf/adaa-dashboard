@@ -36,13 +36,21 @@ export default async function RootLayout({
 
   if (!isAuthRoute) {
     currentUser = await getCurrentUser()
-    const supabase = await createSupabaseServerClient()
-    const { data } = await supabase
-      .from('notifications')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(20)
-    notifications = data || []
+    if (currentUser) {
+      const supabase = await createSupabaseServerClient()
+      const role = currentUser?.profile?.role
+      let q = supabase
+        .from('notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20)
+      // Admins see everything; non-admins see only their own + global (null)
+      if (role !== 'admin') {
+        q = q.or(`user_id.eq.${currentUser.id},user_id.is.null`)
+      }
+      const { data } = await q
+      notifications = data || []
+    }
   }
 
   return (

@@ -1,19 +1,26 @@
+import { redirect } from "next/navigation"
 import { supabaseClient } from "@/lib/supabase/client"
+import { getCurrentUser } from "@/lib/supabase/server"
 import { markTaskCompleted } from "@/app/actions/tasks"
 import { CheckCircle2, Clock, Circle, ArrowRight } from "lucide-react"
 
 export const revalidate = 0
 
-const LOGGED_IN_USER_ID = 'tm2' // Demo: Noura Salem
-
 export default async function MyTasksPage() {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+
+  const { data: me } = await (supabaseClient as any)
+    .from('team_members').select('id').eq('user_id', user.id).maybeSingle()
+  const myTeamMemberId = me?.id ?? '__none__'
+
   const [
     { data: tasks },
     { data: contentItems },
     { data: clients },
   ] = await Promise.all([
-    (supabaseClient as any).from('tasks').select('*').eq('assignee_id', LOGGED_IN_USER_ID),
-    (supabaseClient as any).from('content_items').select('*').eq('assignee_id', LOGGED_IN_USER_ID),
+    (supabaseClient as any).from('tasks').select('*').eq('assignee_id', myTeamMemberId),
+    (supabaseClient as any).from('content_items').select('*').eq('assignee_id', myTeamMemberId),
     (supabaseClient as any).from('clients').select('id, company_name'),
   ])
 

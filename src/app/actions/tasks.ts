@@ -104,17 +104,23 @@ export async function createTask(formData: FormData) {
   if (error) throw new Error("Failed")
 
   if (assignee_id) {
+    const { data: tm } = await (supabaseClient as any)
+      .from('team_members').select('user_id').eq('id', assignee_id).maybeSingle()
     await (supabaseClient as any).from('notifications').insert({
-      user_id: assignee_id,
+      user_id: tm?.user_id ?? null,
       title: 'New Task Assigned',
       message: `You have been assigned: ${title}`,
       type: 'task_assigned',
-      related_id: data[0].id
+      related_id: data[0].id,
+      is_read: false,
     })
   }
 
   revalidatePath('/tasks')
   revalidatePath('/my-tasks')
+  revalidatePath('/my-dashboard')
+  revalidatePath('/notifications')
+  revalidatePath('/', 'layout')
 }
 
 
@@ -143,11 +149,16 @@ export async function createContentItem(formData: FormData, platform: string) {
     .select()
 
   if (!error && data && data.length > 0) {
-    // Notify assignee
+    let notifyUserId: string | null = null
+    if (assignee_id) {
+      const { data: tm } = await (supabaseClient as any)
+        .from('team_members').select('user_id').eq('id', assignee_id).maybeSingle()
+      notifyUserId = tm?.user_id ?? null
+    }
     await (supabaseClient as any)
       .from('notifications')
       .insert({
-        user_id: assignee_id,
+        user_id: notifyUserId,
         title: 'New Content Assigned',
         message: `You have been assigned to prepare: ${title}`,
         type: 'task_assigned',
@@ -157,16 +168,38 @@ export async function createContentItem(formData: FormData, platform: string) {
   }
 
   revalidatePath('/scheduler')
+  revalidatePath('/my-dashboard')
+  revalidatePath('/notifications')
+  revalidatePath('/', 'layout')
 }
 
 export async function updateTaskAssignee(id: string, assignee_id: string) {
-  const { error } = await (supabaseClient as any)
+  const { data, error } = await (supabaseClient as any)
     .from('tasks')
     .update({ assignee_id })
     .eq('id', id)
+    .select()
 
   if (error) throw new Error('Failed')
+
+  if (assignee_id && data?.[0]) {
+    const { data: tm } = await (supabaseClient as any)
+      .from('team_members').select('user_id').eq('id', assignee_id).maybeSingle()
+    await (supabaseClient as any).from('notifications').insert({
+      user_id: tm?.user_id ?? null,
+      title: 'Task Reassigned',
+      message: `You have been assigned: ${data[0].title}`,
+      type: 'task_assigned',
+      related_id: id,
+      is_read: false,
+    })
+  }
+
   revalidatePath('/tasks')
+  revalidatePath('/my-tasks')
+  revalidatePath('/my-dashboard')
+  revalidatePath('/notifications')
+  revalidatePath('/', 'layout')
 }
 
 export async function updateTaskData(id: string, data: any) {

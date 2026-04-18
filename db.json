@@ -1,0 +1,549 @@
+{
+  "clients": [
+    {
+      "id": "c1",
+      "full_name": "Ahmed Youssef",
+      "company_name": "TechNova Solutions",
+      "phone": "+966500000001",
+      "email": "ahmed@technova.sa",
+      "whatsapp": "+966500000001",
+      "city": "Riyadh",
+      "business_type": "Technology",
+      "status": "paused",
+      "start_date": "2024-01-15",
+      "notes": "Long-term client, premium package.",
+      "created_at": "2026-04-17T17:25:26.095Z",
+      "updated_at": "2026-04-18T00:39:40.058Z"
+    },
+    {
+      "id": "c2",
+      "full_name": "Sarah Al-Saud",
+      "company_name": "Elegance Fashion",
+      "phone": "+966500000002",
+      "email": "sarah@elegance.sa",
+      "whatsapp": "+966500000002",
+      "city": "Jeddah",
+      "business_type": "Fashion & Retail",
+      "status": "active",
+      "start_date": "2024-03-01",
+      "notes": "Focus on Instagram and TikTok.",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "c3",
+      "full_name": "Khalid Ibrahim",
+      "company_name": "AlRawabi Real Estate",
+      "phone": "+966500000003",
+      "email": "khalid@alrawabi.sa",
+      "whatsapp": "+966500000003",
+      "city": "Riyadh",
+      "business_type": "Real Estate",
+      "status": "lead",
+      "start_date": "2024-06-10",
+      "notes": "",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "c4",
+      "full_name": "Fatima Nasser",
+      "company_name": "Bloom Restaurant",
+      "phone": "+966500000004",
+      "email": "fatima@bloom.sa",
+      "whatsapp": "+966500000004",
+      "city": "Dammam",
+      "business_type": "Food & Beverage",
+      "status": "paused",
+      "start_date": "2023-11-01",
+      "notes": "Paused during ramadan season.",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ],
+  "client_services": [
+    {
+      "id": "cs1",
+      "client_id": "c1",
+      "service_name": "Social Media Management",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "cs2",
+      "client_id": "c1",
+      "service_name": "Google Ads",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "cs3",
+      "client_id": "c1",
+      "service_name": "SEO",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "cs4",
+      "client_id": "c2",
+      "service_name": "Social Media Management",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "cs5",
+      "client_id": "c2",
+      "service_name": "Content Production",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "cs6",
+      "client_id": "c3",
+      "service_name": "Google Ads",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ],
+  "social_accounts": [
+    {
+      "id": "sa1",
+      "client_id": "c1",
+      "platform": "instagram",
+      "account_name": "TechNova Insta",
+      "username": "technova_sa",
+      "email": "social@technova.sa",
+      "encrypted_password": "mock_encrypted_secret",
+      "external_id": null,
+      "is_default": true,
+      "followers": 12400,
+      "status": "active",
+      "notes": "Main business channel",
+      "updated_at": "2026-04-17T17:25:26.095Z",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "sa2",
+      "client_id": "c1",
+      "platform": "tiktok",
+      "account_name": "TechNova Official",
+      "username": "technova.sa",
+      "email": "tiktok@technova.sa",
+      "encrypted_password": "mock_encrypted_secret",
+      "external_id": "tt_1234567890",
+      "is_default": true,
+      "followers": 3200,
+      "status": "active",
+      "notes": "Growth channel",
+      "updated_at": "2026-04-17T17:25:26.095Z",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "sa3",
+      "client_id": "c2",
+      "platform": "instagram",
+      "account_name": "Elegance Fashion IG",
+      "username": "elegance.fashion",
+      "email": "hello@elegance.sa",
+      "encrypted_password": "mock_encrypted_secret",
+      "external_id": null,
+      "is_default": true,
+      "followers": 48700,
+      "status": "active",
+      "notes": "",
+      "updated_at": "2026-04-17T17:25:26.095Z",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "sa4",
+      "client_id": "c2",
+      "platform": "snapchat",
+      "account_name": "Elegance Snaps",
+      "username": "elegance_sa",
+      "email": "snap@elegance.sa",
+      "encrypted_password": "mock_encrypted_secret",
+      "external_id": "snap_uuid_898",
+      "is_default": true,
+      "followers": 2100,
+      "status": "active",
+      "notes": "High engagement",
+      "updated_at": "2026-04-17T17:25:26.095Z",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "sa5",
+      "client_id": "c1",
+      "platform": "google_ads",
+      "account_name": "TechNova Ad Manager",
+      "username": null,
+      "email": "ads@technova.sa",
+      "encrypted_password": null,
+      "external_id": "123-456-7890",
+      "is_default": true,
+      "followers": null,
+      "status": "active",
+      "notes": "Google Ads MCC ID",
+      "updated_at": "2026-04-17T17:25:26.095Z",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "con1",
+      "client_id": "c1",
+      "title": "Annual Social Media Management",
+      "contract_type": "retainer",
+      "value": 36000,
+      "currency": "SAR",
+      "start_date": "2024-01-01",
+      "end_date": "2024-12-31",
+      "status": "active",
+      "payment_cycle": "monthly",
+      "notes": "Includes all platforms.",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "con2",
+      "client_id": "c2",
+      "title": "Q4 Content Production Package",
+      "contract_type": "project",
+      "value": 15000,
+      "currency": "SAR",
+      "start_date": "2024-10-01",
+      "end_date": "2024-12-31",
+      "status": "ending_soon",
+      "payment_cycle": "one-time",
+      "notes": "",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "con3",
+      "client_id": "c3",
+      "title": "Google Ads Campaign Setup",
+      "contract_type": "project",
+      "value": 8000,
+      "currency": "SAR",
+      "start_date": "2024-06-01",
+      "end_date": "2024-09-30",
+      "status": "expired",
+      "payment_cycle": "one-time",
+      "notes": "Needs renewal discussion.",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ],
+  "reminders": [
+    {
+      "id": "r1",
+      "client_id": "c2",
+      "title": "Contract Renewal Discussion",
+      "type": "contract",
+      "priority": "high",
+      "due_date": "2024-12-01",
+      "status": "completed",
+      "notes": "Call Sarah to discuss Q1 2025 plan.",
+      "created_at": "2026-04-17T17:25:26.095Z",
+      "updated_at": "2026-04-18T00:13:51.007Z"
+    },
+    {
+      "id": "r3",
+      "client_id": "c3",
+      "title": "Follow-up on Proposal",
+      "type": "call",
+      "priority": "high",
+      "due_date": "2024-11-20",
+      "status": "completed",
+      "notes": "",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ],
+  "client_files": [
+    {
+      "id": "f1",
+      "client_id": "c1",
+      "name": "Brand Guidelines 2024.pdf",
+      "category": "Branding",
+      "size": 2457600,
+      "file_type": "pdf",
+      "storage_path": "/files/c1/brand_guidelines.pdf",
+      "uploaded_by": "tm1",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "f2",
+      "client_id": "c1",
+      "name": "Q3 Performance Report.xlsx",
+      "category": "Reports",
+      "size": 512000,
+      "file_type": "xlsx",
+      "storage_path": "/files/c1/q3_report.xlsx",
+      "uploaded_by": "tm1",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "f3",
+      "client_id": "c2",
+      "name": "Product Catalog.pdf",
+      "category": "Products",
+      "size": 8192000,
+      "file_type": "pdf",
+      "storage_path": "/files/c2/catalog.pdf",
+      "uploaded_by": "tm2",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ],
+  "content_items": [
+    {
+      "id": "ci1",
+      "client_id": "c1",
+      "platform": "instagram",
+      "content_type": "reel",
+      "title": "Tech Tips: 5 AI Tools for 2025",
+      "caption": "Revolutionize your workflow with these amazing AI tools! 🚀 Which one is your favourite? Drop a comment below! #TechTips #AI #Productivity",
+      "hashtags": "#tech #ai #productivity #digital #innovation #2025 #trending",
+      "publish_date": "2024-12-05",
+      "publish_time": "18:00",
+      "timezone": "Asia/Riyadh",
+      "schedule_status": "approved",
+      "task_status": "in_progress",
+      "assignee_id": "tm2",
+      "media_url": null,
+      "thumbnail_url": null,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "ci2",
+      "client_id": "c2",
+      "platform": "tiktok",
+      "content_type": "video",
+      "title": "Unboxing: Winter Collection 2024",
+      "caption": "POV: when the winter collection just landed 🔥❄️ Swipe to see the full look!",
+      "hashtags": "#fashion #winter #ootd #fyp #viral #trending #unboxing",
+      "publish_date": "2024-12-07",
+      "publish_time": "12:00",
+      "timezone": "Asia/Riyadh",
+      "schedule_status": "scheduled",
+      "task_status": "not_started",
+      "assignee_id": "tm2",
+      "media_url": null,
+      "thumbnail_url": null,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "ci3",
+      "client_id": "c1",
+      "platform": "google_ads",
+      "content_type": "ad",
+      "title": "TechNova – Cloud Solutions Ad",
+      "caption": "Secure, scalable cloud infrastructure for your business. Get started free today.",
+      "hashtags": "cloud solutions, business software, IT services, tech company riyadh",
+      "publish_date": "2024-12-01",
+      "publish_time": "08:00",
+      "timezone": "Asia/Riyadh",
+      "schedule_status": "published",
+      "task_status": "completed",
+      "assignee_id": "tm3",
+      "media_url": null,
+      "thumbnail_url": null,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "ci4",
+      "client_id": "c2",
+      "platform": "snapchat",
+      "content_type": "story",
+      "title": "Friday Sale Alert!",
+      "caption": "Hey! Big sale this Friday only 👀 Don't miss out – tap to shop!",
+      "hashtags": "#sale #fashion #friday",
+      "publish_date": "2024-12-06",
+      "publish_time": "10:00",
+      "timezone": "Asia/Riyadh",
+      "schedule_status": "draft",
+      "task_status": "not_started",
+      "assignee_id": "tm2",
+      "media_url": null,
+      "thumbnail_url": null,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "n1",
+      "title": "Welcome to AgencyOS",
+      "message": "Your agency operations platform is ready. Start by adding clients!",
+      "type": "system",
+      "related_id": null,
+      "user_id": null,
+      "is_read": false,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "n2",
+      "title": "Contract Ending Soon",
+      "message": "Q4 Content Production Package for Elegance Fashion ends in 30 days.",
+      "type": "contract_alert",
+      "related_id": "con2",
+      "user_id": null,
+      "is_read": false,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "n3",
+      "title": "Task Assigned",
+      "message": "You have been assigned: Tech Tips: 5 AI Tools for 2025",
+      "type": "task_assigned",
+      "related_id": "ci1",
+      "user_id": "tm2",
+      "is_read": false,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "438adca5-e047-480b-a8ff-9e2f276edef5",
+      "created_at": "2026-04-17T17:28:09.112Z",
+      "user_id": null,
+      "title": "Task Completed",
+      "message": "Task/Content \"Schedule Winter Collection Content (12 posts)\" has been marked as completed.",
+      "type": "task_completed",
+      "related_id": "task2",
+      "is_read": false
+    }
+  ],
+  "ad_campaigns": [
+    {
+      "id": "408c0fda-48a5-45f6-9da6-7272ee48e3e7",
+      "created_at": "2026-04-18T02:43:53.616Z",
+      "client_id": "c1",
+      "name": "for free",
+      "objective": "adaa",
+      "budget": 18800,
+      "start_date": "2026-03-12",
+      "end_date": "2026-02-11",
+      "status": "active"
+    }
+  ],
+  "communication_logs": [
+    {
+      "id": "cl1",
+      "client_id": "c1",
+      "type": "call",
+      "summary": "Monthly check-in call",
+      "notes": "Client happy with performance. Discussed Q1 plan.",
+      "date": "2024-11-15",
+      "created_by": "tm1",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "cl2",
+      "client_id": "c2",
+      "type": "email",
+      "summary": "Contract renewal proposal sent",
+      "notes": "Awaiting response.",
+      "date": "2024-11-18",
+      "created_by": "tm1",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ],
+  "team_members": [
+    {
+      "id": "tm1",
+      "full_name": "Fahad Al-Dossari",
+      "role": "admin",
+      "job_title": "CEO / Account Director",
+      "email": "fahad@agency.sa",
+      "phone": "+966500000010",
+      "whatsapp": "+966500000010",
+      "status": "active",
+      "avatar_initials": "FA",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "tm2",
+      "full_name": "Noura Salem",
+      "role": "staff",
+      "job_title": "Social Media Specialist",
+      "email": "noura@agency.sa",
+      "phone": "+966500000011",
+      "whatsapp": "+966500000011",
+      "status": "active",
+      "avatar_initials": "NS",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "tm3",
+      "full_name": "Omar Ziad",
+      "role": "manager",
+      "job_title": "Digital Marketing Manager",
+      "email": "omar@agency.sa",
+      "phone": "+966500000012",
+      "whatsapp": "+966500000012",
+      "status": "active",
+      "avatar_initials": "OZ",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "tm4",
+      "full_name": "Layla Hassan",
+      "role": "staff",
+      "job_title": "Graphic Designer",
+      "email": "layla@agency.sa",
+      "phone": "+966500000013",
+      "whatsapp": "+966500000013",
+      "status": "active",
+      "avatar_initials": "LH",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task1",
+      "client_id": "c1",
+      "assignee_id": "tm3",
+      "title": "Setup Google Ads Q1 2025 Campaign",
+      "description": "Configure campaigns, ad groups, and keyword targeting for TechNova Q1 push.",
+      "priority": "high",
+      "status": "in_progress",
+      "due_date": "2024-12-15",
+      "completed_at": null,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "task2",
+      "client_id": "c2",
+      "assignee_id": "tm2",
+      "title": "Schedule Winter Collection Content (12 posts)",
+      "description": "Review, caption, and schedule all 12 posts for the winter launch.",
+      "priority": "medium",
+      "status": "completed",
+      "due_date": "2024-12-10",
+      "completed_at": "2026-04-17T17:28:09.109Z",
+      "created_at": "2026-04-17T17:25:26.095Z",
+      "updated_at": "2026-04-17T17:28:09.109Z"
+    },
+    {
+      "id": "task3",
+      "client_id": "c1",
+      "assignee_id": "tm1",
+      "title": "Send Contract Renewal Proposal",
+      "description": "Prepare and send the 2025 retainer contract to Ahmed for review.",
+      "priority": "urgent",
+      "status": "todo",
+      "due_date": "2024-12-01",
+      "completed_at": null,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "task4",
+      "client_id": "c3",
+      "assignee_id": "tm3",
+      "title": "AlRawabi – Site Technical SEO Audit",
+      "description": "Run Lighthouse, Screaming Frog, and SEMrush audit. Deliver report.",
+      "priority": "medium",
+      "status": "review",
+      "due_date": "2024-12-20",
+      "completed_at": null,
+      "created_at": "2026-04-17T17:25:26.095Z"
+    },
+    {
+      "id": "task5",
+      "client_id": "c1",
+      "assignee_id": "tm2",
+      "title": "November Performance Report",
+      "description": "Compile analytics from Meta, Google, TikTok into monthly report.",
+      "priority": "medium",
+      "status": "completed",
+      "due_date": "2024-11-30",
+      "completed_at": "2026-04-17T17:25:26.095Z",
+      "created_at": "2026-04-17T17:25:26.095Z"
+    }
+  ]
+}

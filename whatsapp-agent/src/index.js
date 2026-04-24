@@ -133,7 +133,7 @@ async function handleOne(sock, msg) {
   console.log(`[in] ${text || '(image only)'}${images.length ? ` [+${images.length} image]` : ''}`)
 
   try { await sock.sendPresenceUpdate('composing', jid) } catch {}
-  const reply = await handleMessage(text, { images })
+  const reply = await handleMessage(text, { images, sender })
   await sock.sendMessage(jid, { text: reply })
   try { await sock.sendPresenceUpdate('paused', jid) } catch {}
 

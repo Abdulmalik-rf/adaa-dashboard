@@ -1,5 +1,6 @@
 import { tools as chatTools } from './tools/definitions.js'
 import { runTool } from './tools/executors.js'
+import { getHistory, appendUser, appendAssistant } from './memory.js'
 
 // The Codex backend at chatgpt.com/backend-api/codex/responses accepts ChatGPT
 // Plus OAuth JWTs. Uses the OpenAI Responses API shape with SSE streaming.
@@ -34,12 +35,33 @@ const tools = chatTools.map((t) => ({
   strict: false,
 }))
 
-const systemInstructions = () => `You are the ops agent for the Adaa agency CRM.
+// "YYYY-MM-DD HH:MM:SS" formatted in the configured timezone so the model has
+// a concrete "now" to compute "in 2 minutes" / "at 3pm" against.
+function nowInTimezone(tz) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date())
+  const get = (t) => parts.find((p) => p.type === t)?.value ?? '00'
+  const hour = get('hour') === '24' ? '00' : get('hour')
+  return `${get('year')}-${get('month')}-${get('day')} ${hour}:${get('minute')}:${get('second')}`
+}
+
+const systemInstructions = () => {
+  const tz = process.env.TIMEZONE ?? 'Asia/Riyadh'
+  const now = nowInTimezone(tz)
+  return `You are the ops agent for the Adaa agency CRM.
 You receive messages over WhatsApp (text, or text + image) and either:
 (a) perform CRM actions via the provided tools, or
 (b) ask a short clarifying question if the request is ambiguous.
 
-Today's date is ${new Date().toISOString().split('T')[0]}. Resolve relative dates ("tomorrow", "next Monday") before calling tools.
+Right now is ${now} in ${tz}. Use this to compute relative times/dates precisely — never ask the user what time it is. "In 2 minutes" means add 2 minutes to the clock shown above.
 
 ## Style
 - Be terse. WhatsApp replies should be one or two lines.
@@ -77,11 +99,12 @@ Today's date is ${new Date().toISOString().split('T')[0]}. Resolve relative date
 ## Deletes (DESTRUCTIVE)
 - Never call delete_* immediately. First summarize what will be deleted and ask the user to confirm.
 - Only proceed on a clear "yes" / "confirm" / "delete it".`
+}
 
-function userInput(text, images) {
+function userMessageItem(text, images) {
   const parts = [{ type: 'input_text', text: text || '(no text, image only)' }]
   for (const url of images) parts.push({ type: 'input_image', image_url: url })
-  return [{ type: 'message', role: 'user', content: parts }]
+  return { type: 'message', role: 'user', content: parts }
 }
 
 async function parseStream(res) {
@@ -142,7 +165,15 @@ async function callModel(input) {
 
 export async function handleMessage(userText, opts = {}) {
   const images = opts.images ?? []
-  let input = userInput(userText, images)
+  const sender = opts.sender ?? 'default'
+
+  // Start with the rolling per-sender history so follow-ups like "yes",
+  // "Dammam", "at 3pm" stay anchored to the original request.
+  const history = getHistory(sender)
+  const userMsg = userMessageItem(userText, images)
+  appendUser(sender, userMsg)
+
+  let input = [...history, userMsg]
 
   for (let step = 0; step < 10; step++) {
     const outputs = await callModel(input)
@@ -155,7 +186,9 @@ export async function handleMessage(userText, opts = {}) {
         .map((c) => c.text)
         .join('\n')
         .trim()
-      return text || 'Done.'
+      const reply = text || 'Done.'
+      appendAssistant(sender, reply)
+      return reply
     }
 
     // store:false means the server can't rehydrate reasoning items by id;
@@ -175,5 +208,7 @@ export async function handleMessage(userText, opts = {}) {
     }
   }
 
-  return 'Agent stopped after too many steps. Try rephrasing.'
+  const fallback = 'Agent stopped after too many steps. Try rephrasing.'
+  appendAssistant(sender, fallback)
+  return fallback
 }

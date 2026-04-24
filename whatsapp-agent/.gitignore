@@ -1,4 +1,7 @@
 node_modules
 .env
 .wwebjs_auth
+.wwebjs_auth_stale_*
 .wwebjs_cache
+.wwebjs_cache_stale_*
+baileys_auth

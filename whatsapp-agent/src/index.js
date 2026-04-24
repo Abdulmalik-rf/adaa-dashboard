@@ -1,83 +1,137 @@
 import 'dotenv/config'
-import pkg from 'whatsapp-web.js'
+import baileys, {
+  DisconnectReason,
+  useMultiFileAuthState,
+  downloadContentFromMessage,
+  fetchLatestBaileysVersion,
+} from '@whiskeysockets/baileys'
 import qrcode from 'qrcode-terminal'
+import pino from 'pino'
 import { handleMessage } from './agent.js'
 
-const { Client, LocalAuth } = pkg
+const makeWASocket = baileys.default ?? baileys.makeWASocket ?? baileys
 
-const ALLOWED = process.env.ALLOWED_PHONE
-if (!ALLOWED) throw new Error('Missing ALLOWED_PHONE in env')
+// Accept messages from either the user's phone number (@s.whatsapp.net) or
+// their LID (@lid) — LIDs are used when the two parties haven't saved each
+// other as contacts.
+const ALLOWED_SET = new Set(
+  [process.env.ALLOWED_PHONE, process.env.ALLOWED_LID]
+    .filter(Boolean)
+    .map((s) => s.trim())
+)
+if (ALLOWED_SET.size === 0) throw new Error('Missing ALLOWED_PHONE (or ALLOWED_LID) in env')
 if (!process.env.OPENAI_CHATGPT_TOKEN) throw new Error('Missing OPENAI_CHATGPT_TOKEN in env')
 
-const wa = new Client({
-  authStrategy: new LocalAuth({ clientId: 'adaa-agent' }),
-  puppeteer: {
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  },
-})
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
-wa.on('qr', (qr) => {
-  console.log('\nScan this QR with WhatsApp (Settings -> Linked devices -> Link a device):')
-  qrcode.generate(qr, { small: true })
-})
+function extractText(msg) {
+  const m = msg.message ?? {}
+  return (
+    m.conversation ??
+    m.extendedTextMessage?.text ??
+    m.imageMessage?.caption ??
+    m.videoMessage?.caption ??
+    ''
+  ).trim()
+}
 
-wa.on('authenticated', () => console.log('WhatsApp authenticated.'))
-wa.on('ready', () => console.log(`Agent ready. Listening for messages from ${ALLOWED}.`))
-wa.on('auth_failure', (m) => console.error('Auth failure:', m))
-wa.on('disconnected', (r) => console.error('Disconnected:', r))
+async function imageToDataUrl(imageMessage) {
+  const stream = await downloadContentFromMessage(imageMessage, 'image')
+  const chunks = []
+  for await (const chunk of stream) chunks.push(chunk)
+  const buffer = Buffer.concat(chunks)
+  if (buffer.length > MAX_IMAGE_BYTES) {
+    throw new Error('image too large (>8 MB)')
+  }
+  const mime = imageMessage.mimetype || 'image/jpeg'
+  return `data:${mime};base64,${buffer.toString('base64')}`
+}
 
-// Max image size to accept. WhatsApp photos are usually well under this,
-// but someone could send a huge attachment — cap it to avoid OOM on the VPS.
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024 // 8 MB
+async function start() {
+  const { state, saveCreds } = await useMultiFileAuthState('./baileys_auth')
+  const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }))
 
-wa.on('message', async (msg) => {
-  // Only accept messages from the allowed phone. Ignore everything else.
-  // msg.from is like "971501234567@c.us" for personal chats.
-  const sender = msg.from.split('@')[0]
-  if (sender !== ALLOWED) return
-  if (msg.fromMe) return
+  const sock = makeWASocket({
+    auth: state,
+    logger: pino({ level: 'silent' }),
+    printQRInTerminal: false,
+    browser: ['Adaa Agent', 'Chrome', '1.0.0'],
+    version,
+    syncFullHistory: false,
+  })
 
-  const text = (msg.body ?? '').trim()
+  sock.ev.on('creds.update', saveCreds)
+
+  sock.ev.on('connection.update', ({ connection, qr, lastDisconnect }) => {
+    if (qr) {
+      console.log('\nScan this QR with WhatsApp (Settings -> Linked devices -> Link a device):')
+      qrcode.generate(qr, { small: true })
+    }
+    if (connection === 'open') {
+      console.log(`Agent ready. Listening for messages from ${[...ALLOWED_SET].join(' or ')}.`)
+    }
+    if (connection === 'close') {
+      const code = lastDisconnect?.error?.output?.statusCode
+      const loggedOut = code === DisconnectReason.loggedOut
+      console.log(`Disconnected. code=${code}${loggedOut ? ' (logged out — delete ./baileys_auth to re-link)' : ''}`)
+      if (!loggedOut) {
+        setTimeout(() => start().catch((err) => console.error('reconnect failed:', err)), 2000)
+      }
+    }
+  })
+
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    // notify = brand-new message received now
+    // append = catch-up after reconnect (missed while offline) — we want these too
+    if (type !== 'notify' && type !== 'append') return
+
+    for (const msg of messages) {
+      try {
+        await handleOne(sock, msg)
+      } catch (err) {
+        console.error('Handler error:', err)
+        try {
+          await sock.sendMessage(msg.key.remoteJid, { text: `Error: ${err?.message ?? 'unknown'}` })
+        } catch {}
+      }
+    }
+  })
+}
+
+async function handleOne(sock, msg) {
+  if (msg.key.fromMe) return
+  const jid = msg.key.remoteJid
+  if (!jid) return
+  if (jid.endsWith('@g.us')) return
+
+  const sender = jid.split('@')[0]
+
+  if (!ALLOWED_SET.has(sender)) return
+
+  const text = extractText(msg)
   const images = []
-
-  if (msg.hasMedia) {
+  if (msg.message?.imageMessage) {
     try {
-      const media = await msg.downloadMedia()
-      if (!media) {
-        await msg.reply('Could not download the attachment.')
-        return
-      }
-      if (!media.mimetype?.startsWith('image/')) {
-        await msg.reply(`I can only read text and images. (got ${media.mimetype})`)
-        return
-      }
-      // media.data is base64 already. Rough byte size = base64 length * 3/4.
-      const approxBytes = (media.data?.length ?? 0) * 0.75
-      if (approxBytes > MAX_IMAGE_BYTES) {
-        await msg.reply('Image too large. Please send a smaller version (<8 MB).')
-        return
-      }
-      images.push(`data:${media.mimetype};base64,${media.data}`)
+      images.push(await imageToDataUrl(msg.message.imageMessage))
     } catch (err) {
-      console.error('Media download failed:', err)
-      await msg.reply(`Could not read the attachment: ${err?.message ?? 'unknown'}`)
+      await sock.sendMessage(jid, { text: `Could not read image: ${err?.message ?? 'unknown'}` })
       return
     }
   }
 
-  // Ignore empty messages with no media (e.g. deleted, forwarded system stuff).
   if (!text && images.length === 0) return
 
-  console.log(`[in] ${text || '(image)'} ${images.length ? `[+${images.length} image]` : ''}`)
-  try {
-    const reply = await handleMessage(text, { images })
-    await msg.reply(reply)
-    console.log(`[out] ${reply}`)
-  } catch (err) {
-    console.error('Handler error:', err)
-    await msg.reply(`Error: ${err?.message ?? 'unknown'}`)
-  }
-})
+  console.log(`[in] ${text || '(image only)'}${images.length ? ` [+${images.length} image]` : ''}`)
 
-wa.initialize()
+  try { await sock.sendPresenceUpdate('composing', jid) } catch {}
+  const reply = await handleMessage(text, { images })
+  await sock.sendMessage(jid, { text: reply })
+  try { await sock.sendPresenceUpdate('paused', jid) } catch {}
+
+  console.log(`[out] ${reply}`)
+}
+
+start().catch(err => {
+  console.error('Fatal:', err)
+  process.exit(1)
+})

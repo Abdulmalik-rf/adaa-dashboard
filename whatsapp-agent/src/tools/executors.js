@@ -130,6 +130,7 @@ async function addReminder(input) {
     description: input.description ?? null,
     type: input.type,
     due_date: input.due_date,
+    due_time: input.due_time ?? null,
     priority: input.priority ?? 'medium',
     status: 'pending',
   }
@@ -156,7 +157,7 @@ async function findReminder(input) {
 async function updateReminder(input) {
   const { id, ...rest } = input
   const patch = pickDefined(rest, [
-    'title', 'description', 'type', 'due_date', 'priority', 'status',
+    'title', 'description', 'type', 'due_date', 'due_time', 'priority', 'status',
   ])
   if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
   const { data, error } = await supabase

@@ -111,12 +111,18 @@ const remindersTools = [
     type: 'function',
     function: {
       name: 'add_reminder',
-      description: 'Create a reminder. Use for "remind me", "follow up on X on DATE".',
+      description:
+        'Create a reminder. The agent will send the user a WhatsApp message at the due date+time. Use for "remind me at 3pm", "follow up on X on Monday", etc.',
       parameters: {
         type: 'object',
         properties: {
           title: { type: 'string' },
           due_date: { type: 'string', description: 'ISO date YYYY-MM-DD.' },
+          due_time: {
+            type: 'string',
+            description:
+              'Optional. 24h time HH:MM or HH:MM:SS in the user\'s local timezone. If the user says "at 3pm" use "15:00". If omitted, fires at 09:00 local time on the due date.',
+          },
           type: { type: 'string', description: 'e.g. "call", "meeting", "follow_up", "payment".' },
           priority: { type: 'string', enum: ['low', 'medium', 'high'] },
           description: { type: 'string' },
@@ -157,6 +163,7 @@ const remindersTools = [
           description: { type: 'string' },
           type: { type: 'string' },
           due_date: { type: 'string' },
+          due_time: { type: 'string', description: '24h HH:MM local time.' },
           priority: { type: 'string', enum: ['low', 'medium', 'high'] },
           status: { type: 'string', enum: ['pending', 'completed'] },
         },

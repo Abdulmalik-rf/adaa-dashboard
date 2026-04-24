@@ -62,6 +62,14 @@ Today's date is ${new Date().toISOString().split('T')[0]}. Resolve relative date
 - Screenshots of a social profile → call add_social_account.
 - If the image is ambiguous, ask what the user wants done with it in one short line.
 
+## Reminders — IMPORTANT
+- When creating a reminder, the agent will actually send the user a WhatsApp message at the due date + due_time.
+- If the user specifies a time ("at 3pm", "tomorrow 9am", "Friday 18:00"), convert to 24h HH:MM and pass as due_time.
+- If they don't specify a time, omit due_time — it will fire at 09:00 local by default.
+- All times are in the user's local timezone (Asia/Riyadh by default).
+- Example: "remind me to call Acme at 3pm tomorrow" → add_reminder({ title: "Call Acme", due_date: "<tomorrow>", due_time: "15:00", type: "call", client_company_name: "Acme" }).
+- Reply with something like "Reminder set for Tue 25 Nov 15:00 ✓" so the user can confirm the time.
+
 ## Notes on clients
 - To add a free-form note to a client, call add_client_note. It APPENDS with today's date and preserves all prior notes.
 - Never use update_client({ notes: ... }) for appending to the log — that overwrites.

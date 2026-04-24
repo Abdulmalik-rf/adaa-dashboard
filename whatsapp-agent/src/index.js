@@ -8,6 +8,7 @@ import baileys, {
 import qrcode from 'qrcode-terminal'
 import pino from 'pino'
 import { handleMessage } from './agent.js'
+import { startScheduler } from './scheduler.js'
 
 const makeWASocket = baileys.default ?? baileys.makeWASocket ?? baileys
 
@@ -69,6 +70,14 @@ async function start() {
     }
     if (connection === 'open') {
       console.log(`Agent ready. Listening for messages from ${[...ALLOWED_SET].join(' or ')}.`)
+      // Pick the JID to send reminders TO. Prefer the LID (matches how the
+      // user has been sending messages), fall back to phone-number JID.
+      const notifyJid = process.env.ALLOWED_LID
+        ? `${process.env.ALLOWED_LID}@lid`
+        : `${process.env.ALLOWED_PHONE}@s.whatsapp.net`
+      startScheduler(sock, notifyJid).catch((err) =>
+        console.error('scheduler failed to start:', err?.message ?? err),
+      )
     }
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode

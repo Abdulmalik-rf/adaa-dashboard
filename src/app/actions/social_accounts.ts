@@ -59,7 +59,6 @@ export async function addSocialAccount(formData: FormData) {
   }
 
   revalidatePath(`/clients/${clientId}`)
-  revalidatePath(`/social/${platform}`)
 }
 
 export async function updateSocialAccount(id: string, formData: FormData) {
@@ -101,7 +100,6 @@ export async function updateSocialAccount(id: string, formData: FormData) {
   }
 
   revalidatePath(`/clients/${clientId}`)
-  revalidatePath(`/social/${platform}`)
 }
 
 export async function deleteSocialAccount(id: string, clientId: string, platform: string) {
@@ -111,7 +109,6 @@ export async function deleteSocialAccount(id: string, clientId: string, platform
     throw new Error('Failed to delete social account')
   }
   revalidatePath(`/clients/${clientId}`)
-  revalidatePath(`/social/${platform}`)
 }
 
 export async function setAccountAsDefault(id: string, clientId: string, platform: string) {
@@ -133,5 +130,4 @@ export async function setAccountAsDefault(id: string, clientId: string, platform
   }
 
   revalidatePath(`/clients/${clientId}`)
-  revalidatePath(`/social/${platform}`)
 }

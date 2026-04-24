@@ -7,7 +7,7 @@ import {
   ArrowRight, Activity, AlertCircle, Calendar, BarChart3,
   Zap, ShieldAlert, Target, Heart, TrendingDown,
   Briefcase, CheckSquare, UploadCloud, MessageSquare, Search,
-  Filter, DollarSign, PieChart, Star, Mail
+  Filter, DollarSign, PieChart, Star, Mail, Phone, UserCheck
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts'
@@ -108,6 +108,7 @@ export function DashboardClient({
 
   // 1. Executive Summary Metrics
   const activeClients = clients?.filter((c:any) => c.status === 'active') || []
+  const clientsToContact = clients?.filter((c:any) => c.status === 'to_contact') || []
   const monthlyRevenue = contracts?.filter((c:any) => c.status === 'active').reduce((sum:number, c:any) => sum + (c.value || 0), 0) || 0
   const pendingTasks = tasks?.filter((t:any) => t.status !== 'completed') || []
   const scheduledQueued = contentItems?.filter((c:any) => ['scheduled', 'approved', 'draft'].includes(c.schedule_status)) || []
@@ -206,7 +207,6 @@ export function DashboardClient({
          {[
            { icon: Users, label: d.addClient, href: '/clients/new', color: 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500 hover:text-white border-emerald-200 dark:border-emerald-900' },
            { icon: CheckSquare, label: d.addTask, href: '/tasks', color: 'bg-blue-500/10 text-blue-600 hover:bg-blue-500 hover:text-white border-blue-200 dark:border-blue-900' },
-           { icon: Calendar, label: d.scheduleContent, href: '/scheduler/new', color: 'bg-pink-500/10 text-pink-600 hover:bg-pink-500 hover:text-white border-pink-200 dark:border-pink-900' },
            { icon: UploadCloud, label: d.uploadFile, href: '/files', color: 'bg-amber-500/10 text-amber-600 hover:bg-amber-500 hover:text-white border-amber-200 dark:border-amber-900' },
            { icon: FileText, label: d.addContract, href: '/contracts', color: 'bg-purple-500/10 text-purple-600 hover:bg-purple-500 hover:text-white border-purple-200 dark:border-purple-900' },
            { icon: Zap, label: d.openClaw, href: '/api/openclaw', color: 'bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500 hover:text-white border-indigo-200 dark:border-indigo-900' },
@@ -216,6 +216,50 @@ export function DashboardClient({
            </Link>
          ))}
       </div>
+
+      {/* CLIENTS TO CONTACT — captured leads awaiting outreach (populated by the WhatsApp agent from business cards) */}
+      {clientsToContact.length > 0 && (
+        <div className="premium-card border-l-4 border-l-pink-500 overflow-hidden">
+          <div className="p-5 bg-gradient-to-r from-pink-500/5 to-transparent flex items-center justify-between">
+            <div>
+              <h2 className="font-bold text-lg flex items-center gap-2">
+                <UserCheck className="h-5 w-5 text-pink-500" /> Clients to Contact
+              </h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+                {clientsToContact.length} new {clientsToContact.length === 1 ? 'contact' : 'contacts'} captured, awaiting outreach
+              </p>
+            </div>
+            <Link href="/clients?status=to_contact" className="text-xs font-bold text-pink-600 hover:underline whitespace-nowrap">
+              View All →
+            </Link>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 p-5 pt-0">
+            {clientsToContact.slice(0, 6).map((c: any) => (
+              <Link key={c.id} href={`/clients/${c.id}`}>
+                <div className="p-4 rounded-xl border border-pink-200/50 dark:border-pink-900/40 hover:border-pink-500 hover:shadow-md transition-all bg-pink-50/30 dark:bg-pink-900/5 h-full">
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-pink-500/10 text-pink-600 flex items-center justify-center font-black text-sm flex-shrink-0">
+                      {c.company_name?.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm truncate">{c.company_name}</p>
+                      <p className="text-xs text-[hsl(var(--muted-foreground))] truncate">{c.full_name || '—'}</p>
+                      <div className="flex flex-col gap-0.5 mt-2 text-[10px] text-[hsl(var(--muted-foreground))]">
+                        {c.phone && <span className="flex items-center gap-1 truncate"><Phone className="h-3 w-3 flex-shrink-0" />{c.phone}</span>}
+                        {c.email && <span className="flex items-center gap-1 truncate"><Mail className="h-3 w-3 flex-shrink-0" />{c.email}</span>}
+                        {c.city && <span className="flex items-center gap-1 truncate">📍 {c.city}</span>}
+                      </div>
+                      {c.notes && (
+                        <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-2 line-clamp-2 italic">{c.notes}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* EXECUTIVE SUMMARY CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -298,7 +342,6 @@ export function DashboardClient({
                               ))
                              }
                           </div>
-                          <Link href="/scheduler" className="text-xs text-[hsl(var(--primary))] font-bold hover:underline mt-3 inline-block">Go to Scheduler →</Link>
                        </div>
                     </div>
                  </div>

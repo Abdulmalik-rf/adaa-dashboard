@@ -71,12 +71,14 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const total = clients?.length || 0
   const activeCount = enriched.filter((c: any) => c.status === 'active').length
   const leadCount = enriched.filter((c: any) => c.status === 'lead').length
+  const toContactCount = enriched.filter((c: any) => c.status === 'to_contact').length
   const totalRevenue = enriched.filter((c: any) => c.status === 'active').reduce((s: number, c: any) => s + c.revenue, 0)
   const atRiskCount = enriched.filter((c: any) => c.health < 60).length
 
   const statusBadge: Record<string, string> = {
     active: 'badge-active',
     lead: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+    to_contact: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400',
     paused: 'badge-secondary',
     inactive: 'badge-secondary',
   }
@@ -84,11 +86,21 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const statusDot: Record<string, string> = {
     active: 'bg-emerald-500',
     lead: 'bg-amber-400',
+    to_contact: 'bg-pink-500',
     paused: 'bg-gray-400',
     inactive: 'bg-gray-300',
   }
 
-  const statuses = ['all', 'active', 'lead', 'paused', 'inactive']
+  const statusLabel: Record<string, string> = {
+    all: 'All',
+    to_contact: 'To Contact',
+    lead: 'Lead',
+    active: 'Active',
+    paused: 'Paused',
+    inactive: 'Inactive',
+  }
+
+  const statuses = ['all', 'to_contact', 'lead', 'active', 'paused', 'inactive']
 
   return (
     <div className="space-y-6 pb-10">
@@ -101,7 +113,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
             <Users className="h-7 w-7 text-blue-500" /> Client Portfolio
           </h1>
           <p className="text-[hsl(var(--muted-foreground))] mt-1 font-medium">
-            {total} clients · {activeCount} active · {leadCount} leads
+            {total} clients · {activeCount} active · {leadCount} leads{toContactCount > 0 ? ` · ${toContactCount} to contact` : ''}
           </p>
         </div>
         <Link href="/clients/new">
@@ -150,7 +162,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   ? 'bg-[hsl(var(--primary))] text-white border-[hsl(var(--primary))] shadow-sm'
                   : 'border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))]'
               }`}>
-                {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+                {statusLabel[s] ?? s}
               </button>
             </Link>
           ))}

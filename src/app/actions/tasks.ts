@@ -38,7 +38,6 @@ export async function markTaskCompleted(taskId: string, type: 'task' | 'content'
   }
 
   revalidatePath('/my-tasks')
-  revalidatePath('/scheduler')
   revalidatePath('/tasks')
   revalidatePath('/')
   revalidatePath('/notifications')
@@ -167,7 +166,6 @@ export async function createContentItem(formData: FormData, platform: string) {
       })
   }
 
-  revalidatePath('/scheduler')
   revalidatePath('/my-dashboard')
   revalidatePath('/notifications')
   revalidatePath('/', 'layout')

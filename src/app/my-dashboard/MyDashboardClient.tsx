@@ -371,9 +371,6 @@ export function MyDashboardClient({
                 </h2>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{d.upcomingContentSubtitle}</p>
               </div>
-              <Link href="/scheduler" className="text-xs text-[hsl(var(--primary))] font-bold hover:underline whitespace-nowrap">
-                {d.openScheduler} →
-              </Link>
             </div>
             {upcomingContent.length === 0 ? (
               <div className="p-8 text-center text-[hsl(var(--muted-foreground))] bg-[hsl(var(--muted)/0.3)] rounded-xl border border-dashed border-[hsl(var(--border))]">

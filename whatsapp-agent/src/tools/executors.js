@@ -122,9 +122,14 @@ async function deleteClient(input) {
 
 async function addReminder(input) {
   const client_id = await resolveClientIdByName(input.client_company_name)
-  if (input.client_company_name && !client_id) {
-    return { warning: `no client matched "${input.client_company_name}". Reminder not linked.` }
-  }
+  // Previously we returned early when client_company_name was supplied but the
+  // client wasn't found, which left the reminder unsaved and the scheduler with
+  // nothing to fire. Now we always insert; the reminder just lands unlinked.
+  const unlinkedWarning =
+    input.client_company_name && !client_id
+      ? `Note: no client matched "${input.client_company_name}" — reminder saved but not linked to a client.`
+      : null
+
   const row = {
     client_id,
     title: input.title,
@@ -140,7 +145,14 @@ async function addReminder(input) {
   const paths = ['/reminders', '/']
   if (client_id) paths.push(`/clients/${client_id}`)
   await revalidate(paths)
-  return { id: data.id, title: data.title, due_date: data.due_date, linked_client_id: client_id }
+  return {
+    id: data.id,
+    title: data.title,
+    due_date: data.due_date,
+    due_time: data.due_time,
+    linked_client_id: client_id,
+    ...(unlinkedWarning ? { warning: unlinkedWarning } : {}),
+  }
 }
 
 async function findReminder(input) {

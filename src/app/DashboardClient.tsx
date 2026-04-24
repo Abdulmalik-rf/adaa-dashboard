@@ -22,7 +22,6 @@ const DICT = {
     scheduleContent: "Schedule Content",
     uploadFile: "Upload File",
     addContract: "Add Contract",
-    openClaw: "OpenClaw AI",
     
     execSummary: "Executive Summary",
     totalClients: "Total Clients",
@@ -44,7 +43,6 @@ const DICT = {
     
     teamPerformance: "Team Workload & Performance",
     contentOps: "Content Operations Pipeline",
-    openClawInsights: "OpenClaw Intelligence",
     financeIntel: "Financial Intelligence",
     approvalCenter: "Approval & Review Center",
     activityTimeline: "Platform Activity Timeline",
@@ -63,7 +61,6 @@ const DICT = {
     scheduleContent: "جدولة محتوى",
     uploadFile: "رفع ملف",
     addContract: "إضافة عقد",
-    openClaw: "ذكاء OpenClaw",
     
     execSummary: "الملخص التنفيذي",
     totalClients: "إجمالي العملاء",
@@ -85,7 +82,6 @@ const DICT = {
     
     teamPerformance: "أداء الفريق وحجم العمل",
     contentOps: "عمليات وتشغيل المحتوى",
-    openClawInsights: "تحليلات واستنتاجات OpenClaw",
     financeIntel: "الذكاء المالي",
     approvalCenter: "مركز المراجعة والاعتمادات",
     activityTimeline: "السجل الزمني للنشاط",
@@ -158,17 +154,6 @@ export function DashboardClient({
     }).sort((a:any, b:any) => b.taskCount - a.taskCount) || []
   }, [teamMembers, pendingTasks, tasks, today])
 
-  // 5. OpenClaw Insights
-  const openClawInsights = useMemo(() => {
-    const insights = []
-    if (overdueTasks.length > 5) insights.push({ type: 'warning', text: `There are ${overdueTasks.length} overdue tasks bottlenecking operations. Redistribute workload.` })
-    if (expiringContracts.length > 0) insights.push({ type: 'urgent', text: `${expiringContracts.length} high-value contracts are ending soon. Prepare renewal proposals immediately.` })
-    const riskClients = clientHealth.filter((c: any) => c.healthStatus === 'atRisk')
-    if (riskClients.length > 0) insights.push({ type: 'risk', text: `${riskClients[0].company_name} has a dropping health score (${riskClients[0].healthScore}/100) due to stale content pipelines.` })
-    if (insights.length === 0) insights.push({ type: 'success', text: "Operations are fully stabilized. Focus on upselling active clients." })
-    return insights
-  }, [overdueTasks, expiringContracts, clientHealth])
-
   // Chart Data
   const revenueChartData = [
     { name: 'W1', value: monthlyRevenue * 0.2 }, { name: 'W2', value: monthlyRevenue * 0.45 },
@@ -209,7 +194,6 @@ export function DashboardClient({
            { icon: CheckSquare, label: d.addTask, href: '/tasks', color: 'bg-blue-500/10 text-blue-600 hover:bg-blue-500 hover:text-white border-blue-200 dark:border-blue-900' },
            { icon: UploadCloud, label: d.uploadFile, href: '/files', color: 'bg-amber-500/10 text-amber-600 hover:bg-amber-500 hover:text-white border-amber-200 dark:border-amber-900' },
            { icon: FileText, label: d.addContract, href: '/contracts', color: 'bg-purple-500/10 text-purple-600 hover:bg-purple-500 hover:text-white border-purple-200 dark:border-purple-900' },
-           { icon: Zap, label: d.openClaw, href: '/api/openclaw', color: 'bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500 hover:text-white border-indigo-200 dark:border-indigo-900' },
          ].map((qa, i) => (
            <Link key={i} href={qa.href} className={`flex items-center gap-2 px-4 py-2.5 rounded-full border transition-all shadow-sm font-semibold text-xs ${qa.color} flex-auto justify-center sm:flex-none`}>
               <qa.icon className="h-4 w-4" /> {qa.label}
@@ -434,23 +418,6 @@ export function DashboardClient({
         {/* RIGHT COLUMN: INTELLIGENCE & REVIEWS */}
         <div className="space-y-6">
            
-           {/* OPENCLAW INSIGHTS */}
-           <div className="premium-card p-5 bg-gradient-to-br from-[#1E1B4B] to-[#312E81] border-indigo-900/50 shadow-2xl relative overflow-hidden text-white">
-              <div className="absolute right-0 top-0 opacity-10 blur-xl"><Zap className="h-40 w-40 text-purple-400" /></div>
-              <h2 className="font-bold text-base flex items-center gap-2 mb-4 relative z-10"><Zap className="h-5 w-5 text-purple-400" /> {d.openClawInsights}</h2>
-              <div className="space-y-3 relative z-10">
-                 {openClawInsights.map((ins:any, i:number) => (
-                    <div key={i} className={`p-3 rounded-xl border backdrop-blur-sm shadow-sm text-sm ${
-                      ins.type === 'warning' ? 'bg-orange-500/10 border-orange-500/30' :
-                      ins.type === 'urgent' ? 'bg-red-500/10 border-red-500/30' :
-                      ins.type === 'risk' ? 'bg-pink-500/10 border-pink-500/30' : 'bg-emerald-500/10 border-emerald-500/30'
-                    }`}>
-                       ⭐ {ins.text}
-                    </div>
-                 ))}
-                 <button className="w-full btn bg-white text-indigo-900 border-none font-bold shadow-lg hover:bg-gray-100 mt-2">Engage OpenClaw</button>
-              </div>
-           </div>
 
            {/* APPROVAL CENTER */}
            <div className="premium-card p-5">

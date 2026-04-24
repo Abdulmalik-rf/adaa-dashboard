@@ -156,50 +156,10 @@ export function RemindersClient({ reminders, clients }: { reminders: Reminder[];
             <form onSubmit={handleCreate} className="space-y-4" id="reminderForm">
               <div className="form-group relative">
                 <label className="form-label">Client</label>
-                <div className="flex gap-2">
-                  <select name="client_id" id="clientSelect" className="form-input flex-1" required>
-                    <option value="">Select client...</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-                  </select>
-                  <button 
-                    type="button" 
-                    className="btn bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))] hover:text-[hsl(var(--primary-foreground))] border-0 transition-colors"
-                    onClick={async (e) => {
-                       const btn = e.currentTarget
-                       const clientEl = document.getElementById('clientSelect') as HTMLSelectElement
-                       const clientId = clientEl.value
-                       if (!clientId) return alert('Select a client first')
-                       
-                       const c = clients.find(x => x.id === clientId)
-                       btn.innerText = '🧠 Analyzing...'
-                       
-                       try {
-                         const res = await fetch('/api/openclaw', {
-                           method: 'POST',
-                           body: JSON.stringify({ action: 'generate_reminders', payload: { client: c }})
-                         })
-                         const { data } = await res.json()
-                         const suggestion = data[0] // take top suggestion
-                         
-                         // Autopopulate form
-                         ;(document.querySelector('input[name="title"]') as HTMLInputElement).value = suggestion.title
-                         ;(document.querySelector('select[name="type"]') as HTMLSelectElement).value = suggestion.type
-                         ;(document.querySelector('textarea[name="notes"]') as HTMLTextAreaElement).value = suggestion.notes
-                         
-                         const future = new Date()
-                         future.setDate(future.getDate() + (suggestion.days_from_now || 3))
-                         ;(document.querySelector('input[name="due_date"]') as HTMLInputElement).value = future.toISOString().split('T')[0]
-                         
-                       } catch(err) {
-                         alert('OpenClaw failed to generate suggestion')
-                       } finally {
-                         btn.innerText = '✨ Auto-suggest'
-                       }
-                    }}
-                  >
-                    ✨ Auto-suggest
-                  </button>
-                </div>
+                <select name="client_id" id="clientSelect" className="form-input" required>
+                  <option value="">Select client...</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                </select>
               </div>
               <div className="form-group">
                 <label className="form-label">Reminder Title</label>

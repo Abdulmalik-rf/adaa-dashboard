@@ -3,7 +3,6 @@ import { Plus, Search, Users, TrendingUp, UserCheck, AlertCircle, DollarSign } f
 import Link from "next/link"
 import { deleteClient } from "@/app/actions/clients"
 import { Trash2, ArrowUpRight, Building2, Phone, Mail } from "lucide-react"
-import { OpenClawPageBridge } from "@/components/layout/OpenClawPageBridge"
 
 export const revalidate = 0
 
@@ -104,8 +103,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="space-y-6 pb-10">
-      <OpenClawPageBridge page="clients" />
-
       {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>

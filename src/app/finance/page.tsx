@@ -1,6 +1,5 @@
 import { supabaseClient } from "@/lib/supabase/client"
 import { FinanceContent } from "./FinanceContent"
-import { OpenClawPageBridge } from "@/components/layout/OpenClawPageBridge"
 
 export const revalidate = 0
 
@@ -18,14 +17,11 @@ export default async function FinancePage() {
   ])
 
   return (
-    <>
-      <OpenClawPageBridge page="finance" />
-      <FinanceContent
-        contracts={contracts || []}
-        clients={clients || []}
-        campaigns={campaigns || []}
-        contentItems={contentItems || []}
-      />
-    </>
+    <FinanceContent
+      contracts={contracts || []}
+      clients={clients || []}
+      campaigns={campaigns || []}
+      contentItems={contentItems || []}
+    />
   )
 }

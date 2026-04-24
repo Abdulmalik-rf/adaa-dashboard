@@ -4,9 +4,7 @@ import { headers } from 'next/headers'
 import './globals.css'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
-import { OpenClawAssistant } from '@/components/layout/OpenClawAssistant'
-import { OpenClawProvider } from '@/lib/openclaw/context'
-import { LanguageOpenClawBridge } from '@/components/layout/LanguageOpenClawBridge'
+import { ChatWidget } from '@/components/layout/ChatWidget'
 import { createSupabaseServerClient, getCurrentUser } from '@/lib/supabase/server'
 import { LanguageProvider } from '@/lib/i18n/LanguageContext'
 
@@ -65,8 +63,7 @@ export default async function RootLayout({
           {isAuthRoute ? (
             <>{children}</>
           ) : (
-            <OpenClawProvider>
-              <LanguageOpenClawBridge />
+            <>
               <div className="flex h-full min-h-screen bg-[hsl(var(--background))]">
                 <Sidebar />
                 <div className="flex flex-1 flex-col overflow-hidden min-w-0">
@@ -76,8 +73,8 @@ export default async function RootLayout({
                   </main>
                 </div>
               </div>
-              <OpenClawAssistant />
-            </OpenClawProvider>
+              <ChatWidget />
+            </>
           )}
         </LanguageProvider>
       </body>

@@ -7,32 +7,6 @@ export default function SettingsPage() {
       <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Settings</h1>
       
       <div className="grid gap-6 max-w-4xl">
-        <Card className="border-t-4 border-[hsl(var(--primary))] shadow-sm hover:shadow-md transition-all">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">🤖 OpenClaw Intelligence Gateway</CardTitle>
-            <CardDescription>Configure connection settings to the local or remote OpenClaw instance for AI content and workflow execution.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-2">
-              <label className="text-sm font-semibold">Gateway Endpoint URL</label>
-              <input type="text" defaultValue="http://localhost:3005" className="h-9 w-full rounded-md border border-gray-200 bg-gray-50/50 px-3 py-1 text-sm shadow-inner dark:border-gray-800 dark:bg-black/50" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <label className="text-sm font-semibold">API Key / Secret</label>
-                <input type="password" placeholder="Leave empty for local open gateway..." className="h-9 w-full rounded-md border border-gray-200 bg-gray-50/50 px-3 py-1 text-sm shadow-inner dark:border-gray-800 dark:bg-black/50" />
-              </div>
-              <div className="grid gap-2">
-                <label className="text-sm font-semibold">Default Agent Model</label>
-                <input type="text" defaultValue="default" className="h-9 w-full rounded-md border border-gray-200 bg-gray-50/50 px-3 py-1 text-sm shadow-inner dark:border-gray-800 dark:bg-black/50" />
-              </div>
-            </div>
-            <div className="flex justify-end pt-2 border-t border-[hsl(var(--border))] mt-2">
-               <Button className="btn-primary">Test Connection & Save</Button>
-            </div>
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader>
             <CardTitle>WhatsApp API Configuration</CardTitle>

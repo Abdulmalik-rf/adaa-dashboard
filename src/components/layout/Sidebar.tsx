@@ -32,6 +32,7 @@ export function Sidebar() {
   const navBottom = [
     { name: t.team, href: '/team', icon: Users },
     { name: t.contracts, href: '/contracts', icon: FileText },
+    { name: 'Quotations', href: '/quotations', icon: FileText },
     { name: t.files, href: '/files', icon: Folder },
     { name: t.campaigns, href: '/campaigns', icon: BarChart3 },
     { name: t.reminders, href: '/reminders', icon: MessageSquare },

@@ -646,6 +646,146 @@ const clientServicesTools = [
 ]
 
 // =============================================================================
+// QUOTATIONS
+// =============================================================================
+
+const quotationTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'create_quotation',
+      description:
+        'Create a new quotation (price estimate document). Auto-generates the quote number (Q-YYYY-NNN). Only client-facing fields are required — company info (Adaa VAT/CR/address/phone/email) and payment terms default to Adaa\'s standard values. After creating, you MUST call add_quotation_item for each line item the user mentioned.',
+      parameters: {
+        type: 'object',
+        properties: {
+          client_name_en: { type: 'string', description: 'Client name in English (e.g. "MR / Amr").' },
+          client_name_ar: { type: 'string', description: 'Client name in Arabic if user gave one.' },
+          client_company: { type: 'string' },
+          client_vat: { type: 'string' },
+          client_cr: { type: 'string' },
+          client_company_name: {
+            type: 'string',
+            description:
+              'Optional. If the client is already in the CRM, pass their company_name here and the agent will look up and link the client_id.',
+          },
+          issue_date: { type: 'string', description: 'ISO YYYY-MM-DD. Defaults to today.' },
+          valid_until: { type: 'string', description: 'ISO YYYY-MM-DD. Defaults to today+30.' },
+          vat_rate: { type: 'number', description: 'Defaults to 15.' },
+          term1_pct: { type: 'string', description: 'First-payment percentage label, e.g. "50%".' },
+          term1_desc: { type: 'string' },
+          term2_pct: { type: 'string' },
+          term2_desc: { type: 'string' },
+          notes: { type: 'string' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_quotation_item',
+      description:
+        'Append one line item to an existing quotation. Use pricing_mode="fixed" with qty + unit_price for normal items, or pricing_mode="percentage" with percentage for "% of profit"-style pricing. Call once per line item.',
+      parameters: {
+        type: 'object',
+        properties: {
+          quotation_id: { type: 'string' },
+          name: { type: 'string' },
+          description: { type: 'string' },
+          pricing_mode: { type: 'string', enum: ['fixed', 'percentage'] },
+          qty: { type: 'number' },
+          unit_price: { type: 'number', description: 'In SAR.' },
+          percentage: { type: 'number', description: 'Only if pricing_mode="percentage".' },
+        },
+        required: ['quotation_id', 'name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_quotation',
+      description:
+        'Search quotations by quote_number substring OR by client name. Returns up to 5 matches with id, quote_number, client_name_en, status.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_quotation',
+      description: 'Update any editable header field on a quotation. Only include fields you want to change.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          client_name_en: { type: 'string' },
+          client_name_ar: { type: 'string' },
+          client_company: { type: 'string' },
+          client_vat: { type: 'string' },
+          client_cr: { type: 'string' },
+          issue_date: { type: 'string' },
+          valid_until: { type: 'string' },
+          vat_rate: { type: 'number' },
+          term1_pct: { type: 'string' },
+          term1_desc: { type: 'string' },
+          term2_pct: { type: 'string' },
+          term2_desc: { type: 'string' },
+          notes: { type: 'string' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_quotation_status',
+      description: 'Change a quotation\'s status. Use when user says "mark Q-2026-001 as sent/accepted/paid/rejected".',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          status: { type: 'string', enum: ['draft', 'sent', 'accepted', 'rejected', 'paid'] },
+        },
+        required: ['id', 'status'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_quotation_item',
+      description: 'Delete a single line item from a quotation.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Line item id (not quotation id).' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_quotation',
+      description:
+        'Delete a quotation and cascade-delete its line items. DESTRUCTIVE — only call after the user confirms.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+]
+
+// =============================================================================
 // LONG-TERM MEMORY
 // =============================================================================
 
@@ -686,6 +826,7 @@ const memoryTools = [
 
 export const tools = [
   ...memoryTools,
+  ...quotationTools,
   ...clientsTools,
   ...remindersTools,
   ...tasksTools,

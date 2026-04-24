@@ -522,6 +522,165 @@ async function listClientServices(input) {
 }
 
 // =============================================================================
+// QUOTATIONS
+// =============================================================================
+
+// URL the agent shares with the user after creating a quote so they can open
+// and print it. Falls back to the current public dashboard if unset.
+const DASHBOARD_URL =
+  process.env.DASHBOARD_URL ?? 'https://darkturquoise-mantis-641083.hostingersite.com'
+
+async function nextQuoteNumber() {
+  const year = new Date().getFullYear()
+  const prefix = `Q-${year}-`
+  const { data, error } = await supabase
+    .from('quotations')
+    .select('quote_number')
+    .like('quote_number', `${prefix}%`)
+    .order('quote_number', { ascending: false })
+    .limit(1)
+  if (error) throw new Error(`quote_number lookup failed: ${error.message}`)
+  const last = data?.[0]?.quote_number
+  const n = last ? parseInt(last.slice(prefix.length), 10) + 1 : 1
+  return `${prefix}${String(n).padStart(3, '0')}`
+}
+
+async function createQuotation(input) {
+  const quote_number = await nextQuoteNumber()
+
+  // Resolve linked CRM client if the user referenced one by name.
+  let client_id = null
+  let warnings = []
+  if (input.client_company_name) {
+    client_id = await resolveClientIdByName(input.client_company_name)
+    if (!client_id) {
+      warnings.push(`no CRM client matched "${input.client_company_name}" — quote saved unlinked.`)
+    }
+  }
+
+  const today = new Date()
+  const defaultValidUntil = new Date(today)
+  defaultValidUntil.setDate(defaultValidUntil.getDate() + 30)
+
+  const row = {
+    quote_number,
+    client_id,
+    client_name_en: input.client_name_en ?? null,
+    client_name_ar: input.client_name_ar ?? null,
+    client_company: input.client_company ?? null,
+    client_vat: input.client_vat ?? null,
+    client_cr: input.client_cr ?? null,
+    issue_date: input.issue_date ?? today.toISOString().split('T')[0],
+    valid_until: input.valid_until ?? defaultValidUntil.toISOString().split('T')[0],
+    vat_rate: input.vat_rate ?? 15,
+    term1_pct: input.term1_pct ?? '50%',
+    term1_desc: input.term1_desc ?? 'After signing the contract',
+    term2_pct: input.term2_pct ?? '50%',
+    term2_desc:
+      input.term2_desc ?? 'After the service period is finished and delivered as agreed',
+    notes: input.notes ?? null,
+  }
+
+  const { data, error } = await supabase.from('quotations').insert(row).select().single()
+  if (error) throw new Error(`insert quotation failed: ${error.message}`)
+
+  await revalidate(['/quotations', '/'])
+  return {
+    id: data.id,
+    quote_number: data.quote_number,
+    url: `${DASHBOARD_URL}/quotations/${data.id}`,
+    linked_client_id: client_id,
+    ...(warnings.length ? { warning: warnings.join(' ') } : {}),
+  }
+}
+
+async function addQuotationItem(input) {
+  // Pick a position just after the current max for this quote.
+  const { data: existing } = await supabase
+    .from('quotation_items')
+    .select('position')
+    .eq('quotation_id', input.quotation_id)
+    .order('position', { ascending: false })
+    .limit(1)
+  const nextPosition = (existing?.[0]?.position ?? -1) + 1
+
+  const row = {
+    quotation_id: input.quotation_id,
+    name: input.name,
+    description: input.description ?? null,
+    pricing_mode: input.pricing_mode ?? 'fixed',
+    qty: input.qty ?? 1,
+    unit_price: input.unit_price ?? 0,
+    percentage: input.percentage ?? null,
+    position: nextPosition,
+  }
+  const { data, error } = await supabase.from('quotation_items').insert(row).select().single()
+  if (error) throw new Error(`insert quotation_items failed: ${error.message}`)
+
+  await revalidate(['/quotations', `/quotations/${input.quotation_id}`])
+  return { id: data.id, name: data.name, position: data.position }
+}
+
+async function findQuotation(input) {
+  const { data, error } = await supabase
+    .from('quotations')
+    .select('id, quote_number, client_name_en, client_name_ar, client_company, status, issue_date')
+    .or(
+      `quote_number.ilike.%${input.query}%,client_name_en.ilike.%${input.query}%,client_name_ar.ilike.%${input.query}%,client_company.ilike.%${input.query}%`,
+    )
+    .order('created_at', { ascending: false })
+    .limit(5)
+  if (error) throw new Error(`quotations search failed: ${error.message}`)
+  return { matches: data ?? [] }
+}
+
+async function updateQuotation(input) {
+  const { id, ...rest } = input
+  const patch = pickDefined(rest, [
+    'client_name_en', 'client_name_ar', 'client_company', 'client_vat', 'client_cr',
+    'issue_date', 'valid_until', 'vat_rate',
+    'term1_pct', 'term1_desc', 'term2_pct', 'term2_desc',
+    'notes',
+  ])
+  if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
+  const { data, error } = await supabase
+    .from('quotations').update(patch).eq('id', id).select().single()
+  if (error) throw new Error(`update quotation failed: ${error.message}`)
+  await revalidate(['/quotations', `/quotations/${id}`])
+  return {
+    id: data.id,
+    quote_number: data.quote_number,
+    updated_fields: Object.keys(patch),
+  }
+}
+
+async function setQuotationStatus(input) {
+  const { data, error } = await supabase
+    .from('quotations').update({ status: input.status }).eq('id', input.id).select().single()
+  if (error) throw new Error(`set status failed: ${error.message}`)
+  await revalidate(['/quotations', `/quotations/${input.id}`])
+  return { id: data.id, quote_number: data.quote_number, status: data.status }
+}
+
+async function removeQuotationItem(input) {
+  const { data: existing } = await supabase
+    .from('quotation_items').select('quotation_id').eq('id', input.id).maybeSingle()
+  const { error } = await supabase.from('quotation_items').delete().eq('id', input.id)
+  if (error) throw new Error(`delete quotation item failed: ${error.message}`)
+  if (existing?.quotation_id) {
+    await revalidate(['/quotations', `/quotations/${existing.quotation_id}`])
+  }
+  return { deleted: input.id }
+}
+
+async function deleteQuotationExec(input) {
+  const { error } = await supabase.from('quotations').delete().eq('id', input.id)
+  if (error) throw new Error(`delete quotation failed: ${error.message}`)
+  await revalidate(['/quotations', '/'])
+  return { deleted: input.id }
+}
+
+// =============================================================================
 // LONG-TERM MEMORY
 // =============================================================================
 
@@ -542,6 +701,14 @@ const registry = {
   // long-term memory
   remember_fact: doRememberFact,
   forget_fact: doForgetFact,
+  // quotations
+  create_quotation: createQuotation,
+  add_quotation_item: addQuotationItem,
+  find_quotation: findQuotation,
+  update_quotation: updateQuotation,
+  set_quotation_status: setQuotationStatus,
+  remove_quotation_item: removeQuotationItem,
+  delete_quotation: deleteQuotationExec,
   // clients
   add_client: addClient,
   find_client: findClient,

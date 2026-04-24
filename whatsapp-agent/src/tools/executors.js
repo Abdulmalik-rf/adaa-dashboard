@@ -1,6 +1,8 @@
 import { supabase } from '../supabase.js'
 import { revalidate } from '../revalidate.js'
 import { rememberFact, forgetFact } from '../memory-store.js'
+import { generateQuotationPdf } from '../quotation-pdf.js'
+import { getSock, isReady } from '../sock-holder.js'
 
 // =============================================================================
 // HELPERS
@@ -680,6 +682,41 @@ async function deleteQuotationExec(input) {
   return { deleted: input.id }
 }
 
+async function sendQuotationPdf(input) {
+  if (!isReady()) throw new Error('WhatsApp socket not ready')
+
+  // Load the quote + items from Supabase.
+  const [{ data: q, error: qe }, { data: items, error: ie }] = await Promise.all([
+    supabase.from('quotations').select('*').eq('id', input.id).maybeSingle(),
+    supabase
+      .from('quotation_items')
+      .select('*')
+      .eq('quotation_id', input.id)
+      .order('position', { ascending: true }),
+  ])
+  if (qe) throw new Error(`fetch quotation failed: ${qe.message}`)
+  if (ie) throw new Error(`fetch quotation items failed: ${ie.message}`)
+  if (!q) throw new Error(`quotation ${input.id} not found`)
+
+  const pdf = await generateQuotationPdf(q, items ?? [])
+  const { sock, userJid } = getSock()
+
+  const fileName = `${q.quote_number}.pdf`
+  await sock.sendMessage(userJid, {
+    document: pdf,
+    mimetype: 'application/pdf',
+    fileName,
+    caption: `${q.quote_number} — ${q.client_name_en || q.client_name_ar || 'quote'}`,
+  })
+
+  return {
+    sent: true,
+    quote_number: q.quote_number,
+    bytes: pdf.length,
+    fileName,
+  }
+}
+
 // =============================================================================
 // LONG-TERM MEMORY
 // =============================================================================
@@ -709,6 +746,7 @@ const registry = {
   set_quotation_status: setQuotationStatus,
   remove_quotation_item: removeQuotationItem,
   delete_quotation: deleteQuotationExec,
+  send_quotation_pdf: sendQuotationPdf,
   // clients
   add_client: addClient,
   find_client: findClient,

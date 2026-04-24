@@ -108,7 +108,9 @@ Right now is ${now} in ${tz}. Use this to compute relative times/dates precisely
 - "Quote <client> for <items>" → call create_quotation (pass client_name_en and client_company_name if the user named a CRM client), then loop add_quotation_item once per line item.
 - Item pricing: if the user gives a fixed SAR amount, pricing_mode="fixed" with qty+unit_price. If they say "X% of profit", pricing_mode="percentage" with percentage=X.
 - Defaults already applied server-side: VAT 15%, 50/50 terms, valid 30 days, Adaa company info — DO NOT re-specify these unless the user explicitly wants to override.
-- After the create + adds, reply with the quote number AND the full url from the create_quotation response (e.g. "Q-2026-001 ✓ https://<host>/quotations/<id>"). The user opens that URL to print/share.
+- **After create_quotation + all add_quotation_item calls, ALWAYS call send_quotation_pdf(id) last.** The user gets a PDF file attached to WhatsApp — that's the whole point. Do NOT skip this step unless the user explicitly says "no PDF" or "I'll edit first".
+- Reply format after send_quotation_pdf succeeds: "Q-2026-001 ready ✓ PDF sent + https://<host>/quotations/<id>".
+- "Send Q-2026-001 as PDF" / "resend the quote" → just call send_quotation_pdf(id) for the existing quote.
 - "Mark Q-2026-001 as sent/accepted/paid/rejected" → set_quotation_status.
 - "Show my pending quotes" / "find quote for Acme" → find_quotation.
 - If the user gives client details that don't match any CRM client, save the quote anyway — it'll render with the names they provided, just unlinked.

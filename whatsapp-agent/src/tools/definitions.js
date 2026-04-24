@@ -783,6 +783,19 @@ const quotationTools = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'send_quotation_pdf',
+      description:
+        'Render the quotation to an A4 PDF and send it to the user as a WhatsApp document attachment. Call this AFTER create_quotation + all add_quotation_item calls are done for a new quote, OR when the user asks for the PDF of an existing quote ("send me Q-2026-001 as PDF"). Don\'t call mid-edit.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Quotation id.' } },
+        required: ['id'],
+      },
+    },
+  },
 ]
 
 // =============================================================================

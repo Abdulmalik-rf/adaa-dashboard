@@ -1,5 +1,6 @@
 import { supabase } from '../supabase.js'
 import { revalidate } from '../revalidate.js'
+import { rememberFact, forgetFact } from '../memory-store.js'
 
 // =============================================================================
 // HELPERS
@@ -509,10 +510,26 @@ async function listClientServices(input) {
 }
 
 // =============================================================================
+// LONG-TERM MEMORY
+// =============================================================================
+
+async function doRememberFact(input) {
+  const entry = await rememberFact(input.text)
+  return { saved: entry.id, text: entry.text }
+}
+
+async function doForgetFact(input) {
+  return await forgetFact(input.id)
+}
+
+// =============================================================================
 // REGISTRY
 // =============================================================================
 
 const registry = {
+  // long-term memory
+  remember_fact: doRememberFact,
+  forget_fact: doForgetFact,
   // clients
   add_client: addClient,
   find_client: findClient,

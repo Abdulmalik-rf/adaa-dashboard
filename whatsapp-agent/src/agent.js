@@ -1,6 +1,7 @@
 import { tools as chatTools } from './tools/definitions.js'
 import { runTool } from './tools/executors.js'
 import { getHistory, appendUser, appendAssistant } from './memory.js'
+import { listFacts } from './memory-store.js'
 
 // The Codex backend at chatgpt.com/backend-api/codex/responses accepts ChatGPT
 // Plus OAuth JWTs. Uses the OpenAI Responses API shape with SSE streaming.
@@ -53,9 +54,16 @@ function nowInTimezone(tz) {
   return `${get('year')}-${get('month')}-${get('day')} ${hour}:${get('minute')}:${get('second')}`
 }
 
-const systemInstructions = () => {
+async function systemInstructions() {
   const tz = process.env.TIMEZONE ?? 'Asia/Riyadh'
   const now = nowInTimezone(tz)
+  const facts = await listFacts()
+  const factsBlock =
+    facts.length > 0
+      ? '\n\n## Saved memories (long-term, from past conversations)\n' +
+        facts.map((f) => `- [${f.id}] ${f.text}`).join('\n') +
+        '\nUse these facts naturally when relevant. Call forget_fact(id) if the user asks to remove one.'
+      : '\n\n## Saved memories\n(none yet)'
   return `You are the ops agent for the Adaa agency CRM.
 You receive messages over WhatsApp (text, or text + image) and either:
 (a) perform CRM actions via the provided tools, or
@@ -98,7 +106,19 @@ Right now is ${now} in ${tz}. Use this to compute relative times/dates precisely
 
 ## Deletes (DESTRUCTIVE)
 - Never call delete_* immediately. First summarize what will be deleted and ask the user to confirm.
-- Only proceed on a clear "yes" / "confirm" / "delete it".`
+- Only proceed on a clear "yes" / "confirm" / "delete it".
+
+## Long-term memory — BE VERY FRUGAL
+Every saved fact sits in the system prompt of every future call, so it costs tokens forever. Treat memory like a small notebook, not a diary.
+
+- Call remember_fact ONLY when BOTH are true:
+  (1) the user explicitly says "remember …", "memorize …", "don't forget …", OR the info is a durable user preference (timezone, city, language, a key contact name)
+  (2) the info will plausibly affect replies weeks from now
+- Keep each fact **under ~15 words** — compress aggressively (bad: "The user told me today that their city is Dammam in Saudi Arabia"; good: "User's city: Dammam, Saudi Arabia").
+- Never save: current task status, today's meetings, in-flight conversation, chit-chat, things already obvious from the CRM DB.
+- Check the "Saved memories" list below FIRST — if a similar fact exists, update (forget old + save new) or skip.
+- Store hard-limits at 25 facts. If the save tool returns "memory full", don't retry — tell the user to drop some.
+- Call forget_fact(id) when the user says "forget …" or "drop that".${factsBlock}`
 }
 
 function userMessageItem(text, images) {
@@ -135,6 +155,7 @@ async function parseStream(res) {
 }
 
 async function callModel(input) {
+  const instructions = await systemInstructions()
   const res = await fetch(CODEX_URL, {
     method: 'POST',
     headers: {
@@ -150,7 +171,7 @@ async function callModel(input) {
       tools,
       store: false,
       stream: true,
-      instructions: systemInstructions(),
+      instructions,
       reasoning: { effort: EFFORT },
       parallel_tool_calls: true,
     }),

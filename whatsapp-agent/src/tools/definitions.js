@@ -646,8 +646,46 @@ const clientServicesTools = [
 ]
 
 // =============================================================================
+// LONG-TERM MEMORY
+// =============================================================================
+
+const memoryTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'remember_fact',
+      description:
+        'Save a durable fact or preference to the agent\'s long-term memory. Saved facts become part of the system prompt in every future conversation. ONLY use when: (a) the user explicitly tells you to remember/memorize/save something, OR (b) you learn a clearly persistent preference (timezone, city, default currency, name of primary contact at a company). NEVER save ephemeral state (current task, today\'s meeting, in-progress request).',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'The fact, in one concise sentence.' },
+        },
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'forget_fact',
+      description:
+        'Remove a saved memory. The id must match one of the [mem_xxxxx] ids in the "Saved memories" system prompt section.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Memory id, e.g. "mem_a1b2c3".' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+]
+
+// =============================================================================
 
 export const tools = [
+  ...memoryTools,
   ...clientsTools,
   ...remindersTools,
   ...tasksTools,

@@ -78,6 +78,12 @@ Right now is ${now} in ${tz}. Use this to compute relative times/dates precisely
 - If a tool returns a warning, pass it along.
 - Never invent IDs, dates, or data the user did not give you.
 
+## Stop calling tools when the work is done
+- Once `send_quotation_pdf` or `send_weekly_report_pdf` returns `sent: true`, the job is done. STOP. Reply with text only — do NOT call find_*, create_*, or any other tool to "verify" or "follow up".
+- After a successful create/update/delete, do NOT immediately call find_* on the same record to confirm — the create's response already includes what you need.
+- One user request = one outcome. Don't speculatively create siblings (e.g. don't create a second quote for the same client unless the user asked).
+- If your last reply was a fallback like "Hit the step ceiling…" and the user just says "continue" / "go" / "ok", DO NOT redo creates or sends. Instead, ask what specifically they want next.
+
 ## Resolving references
 - When the user names an existing client/contract/campaign/etc. by name, call the matching find_* tool first to get the id.
 - 0 matches → tell the user.
@@ -221,7 +227,17 @@ export async function handleMessage(userText, opts = {}) {
 
   let input = [...history, userMsg]
 
-  for (let step = 0; step < 10; step++) {
+  // Track what tools actually ran this turn so the fallback message can
+  // tell the user what got done — much more useful than "try rephrasing"
+  // when they're staring at three quotes that already exist.
+  const toolsRun = []
+
+  // 25 is generous enough for a quote with ~15 line items + create + send_pdf,
+  // or a fully-populated weekly report (KPIs + platforms + content + campaigns
+  // + tasks + send_pdf), without inviting runaway loops.
+  const MAX_STEPS = 25
+
+  for (let step = 0; step < MAX_STEPS; step++) {
     const outputs = await callModel(input)
     const toolCalls = outputs.filter((o) => o.type === 'function_call')
 
@@ -242,6 +258,7 @@ export async function handleMessage(userText, opts = {}) {
     const forward = outputs.filter((o) => o.type !== 'reasoning')
     input = input.concat(forward)
     for (const tc of toolCalls) {
+      toolsRun.push(tc.name)
       let output
       try {
         const args = JSON.parse(tc.arguments || '{}')
@@ -254,7 +271,17 @@ export async function handleMessage(userText, opts = {}) {
     }
   }
 
-  const fallback = 'Agent stopped after too many steps. Try rephrasing.'
+  // Hit the ceiling. Tell the user *what got done* so they can decide whether
+  // to retry. Without this they'd just see a generic "rephrase" and reply
+  // "continue" — which the model interprets as "do it again from scratch",
+  // producing duplicate quotes/reports.
+  const counts = toolsRun.reduce((acc, n) => ((acc[n] = (acc[n] ?? 0) + 1), acc), {})
+  const summary = Object.entries(counts)
+    .map(([n, c]) => `${n}×${c}`)
+    .join(', ')
+  const fallback =
+    `Hit the ${MAX_STEPS}-step ceiling before I could finish. Already ran: ${summary}. ` +
+    `Tell me what to do next — DON'T just say "continue", that would re-run from scratch.`
   appendAssistant(sender, fallback)
   return fallback
 }

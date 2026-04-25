@@ -70,6 +70,11 @@ Right now is ${now} in ${tz}. Resolve relative dates/times ("tomorrow", "in 20 m
 - Pass tool warnings through to the user.
 - Never invent IDs, dates, or data.
 
+## Stop calling tools when the work is done
+- One user request = one outcome. Don't speculatively create siblings (don't make a second quote/report for the same client unless the user asked).
+- After a successful create/update/delete, do NOT immediately call find_* on the same record to "verify" — the response already includes the id and key fields.
+- If your previous reply was a fallback like "Hit the step ceiling…" and the user just says "continue" / "go" / "ok", DO NOT redo any creates. Ask what specifically they want next.
+
 ## Resolving references
 - When the user names an existing client/contract/campaign/etc., call the matching find_* tool first to get the id, then act.
 - 0 matches → say so. >1 matches → list them briefly and ask which.
@@ -193,7 +198,11 @@ export async function handleChat(
   }
   input.push(userMessageItem(message, []))
 
-  for (let step = 0; step < 10; step++) {
+  // Tool-call audit so the fallback message can name what already ran.
+  const toolsRun: string[] = []
+  const MAX_STEPS = 25
+
+  for (let step = 0; step < MAX_STEPS; step++) {
     const outputs = await callModel(input)
     const toolCalls = outputs.filter((o) => o.type === 'function_call')
 
@@ -212,6 +221,7 @@ export async function handleChat(
     const forward = outputs.filter((o) => o.type !== 'reasoning')
     input.push(...forward)
     for (const tc of toolCalls) {
+      toolsRun.push(tc.name)
       let output: string
       try {
         const args = JSON.parse(tc.arguments || '{}')
@@ -224,5 +234,13 @@ export async function handleChat(
     }
   }
 
-  return 'Agent stopped after too many steps. Try rephrasing.'
+  const counts = toolsRun.reduce<Record<string, number>>(
+    (acc, n) => ((acc[n] = (acc[n] ?? 0) + 1), acc),
+    {},
+  )
+  const summary = Object.entries(counts).map(([n, c]) => `${n}×${c}`).join(', ')
+  return (
+    `Hit the ${MAX_STEPS}-step ceiling before I could finish. Already ran: ${summary}. ` +
+    `Tell me what to do next — DON'T just say "continue", that would re-run from scratch.`
+  )
 }

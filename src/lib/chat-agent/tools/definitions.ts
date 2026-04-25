@@ -906,6 +906,191 @@ const quotationTools = [
 // would need persistent storage (future work).
 
 // =============================================================================
+// NOTIFICATIONS
+// =============================================================================
+
+const notificationTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'find_notifications',
+      description: 'List recent notifications. Pass only_unread=true to filter to unread.',
+      parameters: {
+        type: 'object',
+        properties: {
+          only_unread: { type: 'boolean' },
+          limit: { type: 'number', description: 'Defaults to 20.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mark_notification_read',
+      description: 'Flip is_read=true on one notification.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mark_all_notifications_read',
+      description: 'Mark every unread notification as read in one call.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_notification',
+      description: 'Delete a notification row. Mostly safe — notifications are derived data.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+]
+
+// =============================================================================
+// CONTENT ITEMS (social media posts / drafts)
+// =============================================================================
+
+const contentItemTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'add_content_item',
+      description: 'Schedule or draft a social-media content item for a client. Use schedule_status to track lifecycle.',
+      parameters: {
+        type: 'object',
+        properties: {
+          client_id: { type: 'string' },
+          client_company_name: { type: 'string', description: 'Optional alternative to client_id — agent resolves.' },
+          platform: { type: 'string', description: 'instagram | tiktok | snapchat | google_ads | other.' },
+          content_type: { type: 'string', description: 'reel | post | story | ad' },
+          title: { type: 'string' },
+          caption: { type: 'string' },
+          media_url: { type: 'string' },
+          publish_date: { type: 'string', description: 'ISO YYYY-MM-DD.' },
+          publish_time: { type: 'string', description: 'HH:MM (24h, local).' },
+          schedule_status: { type: 'string', enum: ['idea', 'pending', 'approved', 'scheduled', 'published'] },
+          campaign_name: { type: 'string' },
+          assignee_name: { type: 'string', description: 'Resolved to assignee_id.' },
+          notes: { type: 'string' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_content_item',
+      description: 'Fuzzy-search content items by title.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+          schedule_status: { type: 'string' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_content_item',
+      description: 'Edit a content item — change schedule, status, caption, etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          title: { type: 'string' },
+          caption: { type: 'string' },
+          media_url: { type: 'string' },
+          publish_date: { type: 'string' },
+          publish_time: { type: 'string' },
+          schedule_status: { type: 'string', enum: ['idea', 'pending', 'approved', 'scheduled', 'published'] },
+          task_status: { type: 'string', enum: ['not_started', 'in_progress', 'completed'] },
+          campaign_name: { type: 'string' },
+          notes: { type: 'string' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_content_item',
+      description: 'Delete a content item. DESTRUCTIVE — confirm with user.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+]
+
+// =============================================================================
+// CLIENT FILES (file metadata only — uploads happen via the dashboard UI)
+// =============================================================================
+
+const clientFileTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'list_client_files',
+      description: 'List the files attached to a client.',
+      parameters: {
+        type: 'object',
+        properties: { client_id: { type: 'string' } },
+        required: ['client_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_client_file_link',
+      description: 'Attach a file by URL to a client (e.g. a Google Drive / Dropbox link). Skips actually storing bytes — just records the metadata so it appears in the Files tab.',
+      parameters: {
+        type: 'object',
+        properties: {
+          client_id: { type: 'string' },
+          name: { type: 'string', description: 'Display name, e.g. "Signed contract — TSSC.pdf".' },
+          file_path: { type: 'string', description: 'Public/shareable URL.' },
+          category: { type: 'string', description: 'e.g. "contract", "invoice", "design", "report".' },
+          file_type: { type: 'string', description: 'MIME or short label, e.g. "application/pdf" or "pdf".' },
+        },
+        required: ['client_id', 'name', 'file_path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_client_file',
+      description: 'Remove a file row. Only deletes the metadata — uploaded blobs in storage stay until cleaned manually.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+]
+
+// =============================================================================
 
 export const tools = [
   ...quotationTools,
@@ -919,4 +1104,7 @@ export const tools = [
   ...teamTools,
   ...commLogTools,
   ...clientServicesTools,
+  ...notificationTools,
+  ...contentItemTools,
+  ...clientFileTools,
 ]

@@ -850,6 +850,148 @@ async function linkTaskToContract(input) {
 }
 
 // =============================================================================
+// NOTIFICATIONS
+// =============================================================================
+
+async function findNotifications(input) {
+  let q = supabase
+    .from('notifications')
+    .select('id, title, message, type, related_id, is_read, created_at')
+    .order('created_at', { ascending: false })
+    .limit(input?.limit ?? 20)
+  if (input?.only_unread) q = q.eq('is_read', false)
+  const { data, error } = await q
+  if (error) throw new Error(`fetch notifications failed: ${error.message}`)
+  return { notifications: data ?? [] }
+}
+
+async function markNotificationRead(input) {
+  const { data, error } = await supabase
+    .from('notifications').update({ is_read: true }).eq('id', input.id).select().single()
+  if (error) throw new Error(`mark notification read failed: ${error.message}`)
+  await revalidate(['/notifications', '/'])
+  return { id: data.id, is_read: true }
+}
+
+async function markAllNotificationsRead() {
+  const { error } = await supabase
+    .from('notifications').update({ is_read: true }).eq('is_read', false)
+  if (error) throw new Error(`mark all read failed: ${error.message}`)
+  await revalidate(['/notifications', '/'])
+  return { ok: true }
+}
+
+async function deleteNotification(input) {
+  const { error } = await supabase.from('notifications').delete().eq('id', input.id)
+  if (error) throw new Error(`delete notification failed: ${error.message}`)
+  await revalidate(['/notifications', '/'])
+  return { deleted: input.id }
+}
+
+// =============================================================================
+// CONTENT ITEMS
+// =============================================================================
+
+async function addContentItem(input) {
+  const client_id = input.client_id
+    ?? (await resolveClientIdByName(input.client_company_name))
+  const assignee_id = await findOneTeamMemberIdByName(input.assignee_name)
+  const row = {
+    client_id,
+    platform: input.platform ?? null,
+    content_type: input.content_type ?? null,
+    title: input.title,
+    caption: input.caption ?? null,
+    media_url: input.media_url ?? null,
+    publish_date: input.publish_date ?? null,
+    publish_time: input.publish_time ?? null,
+    schedule_status: input.schedule_status ?? 'idea',
+    campaign_name: input.campaign_name ?? null,
+    assignee_id,
+    notes: input.notes ?? null,
+  }
+  const { data, error } = await supabase.from('content_items').insert(row).select().single()
+  if (error) throw new Error(`insert content_items failed: ${error.message}`)
+  const paths = ['/']
+  if (client_id) paths.push(`/clients/${client_id}`)
+  await revalidate(paths)
+  return { id: data.id, title: data.title, schedule_status: data.schedule_status }
+}
+
+async function findContentItem(input) {
+  let q = supabase
+    .from('content_items')
+    .select('id, title, platform, content_type, schedule_status, publish_date, client_id')
+    .ilike('title', `%${input.query}%`)
+    .limit(5)
+  if (input.schedule_status) q = q.eq('schedule_status', input.schedule_status)
+  const { data, error } = await q
+  if (error) throw new Error(`content_items search failed: ${error.message}`)
+  return { matches: data ?? [] }
+}
+
+async function updateContentItem(input) {
+  const { id, ...rest } = input
+  const patch = pickDefined(rest, [
+    'title', 'caption', 'media_url', 'publish_date', 'publish_time',
+    'schedule_status', 'task_status', 'campaign_name', 'notes',
+  ])
+  if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
+  const { data, error } = await supabase
+    .from('content_items').update(patch).eq('id', id).select().single()
+  if (error) throw new Error(`update content_items failed: ${error.message}`)
+  if (data.client_id) await revalidate([`/clients/${data.client_id}`])
+  return { id: data.id, updated_fields: Object.keys(patch), schedule_status: data.schedule_status }
+}
+
+async function deleteContentItem(input) {
+  const { data: existing } = await supabase
+    .from('content_items').select('client_id').eq('id', input.id).maybeSingle()
+  const { error } = await supabase.from('content_items').delete().eq('id', input.id)
+  if (error) throw new Error(`delete content_items failed: ${error.message}`)
+  if (existing?.client_id) await revalidate([`/clients/${existing.client_id}`])
+  return { deleted: input.id }
+}
+
+// =============================================================================
+// CLIENT FILES (URL-only — physical uploads handled by the dashboard UI)
+// =============================================================================
+
+async function listClientFiles(input) {
+  const { data, error } = await supabase
+    .from('client_files')
+    .select('id, name, category, file_path, file_size, file_type, created_at')
+    .eq('client_id', input.client_id)
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(`list client_files failed: ${error.message}`)
+  return { files: data ?? [] }
+}
+
+async function addClientFileLink(input) {
+  const row = {
+    client_id: input.client_id,
+    name: input.name,
+    category: input.category ?? 'other',
+    file_path: input.file_path,
+    file_type: input.file_type ?? null,
+    file_size: null,
+  }
+  const { data, error } = await supabase.from('client_files').insert(row).select().single()
+  if (error) throw new Error(`insert client_files failed: ${error.message}`)
+  await revalidate([`/clients/${input.client_id}`])
+  return { id: data.id, name: data.name }
+}
+
+async function deleteClientFile(input) {
+  const { data: existing } = await supabase
+    .from('client_files').select('client_id').eq('id', input.id).maybeSingle()
+  const { error } = await supabase.from('client_files').delete().eq('id', input.id)
+  if (error) throw new Error(`delete client_files failed: ${error.message}`)
+  if (existing?.client_id) await revalidate([`/clients/${existing.client_id}`])
+  return { deleted: input.id }
+}
+
+// =============================================================================
 // REGISTRY
 // =============================================================================
 
@@ -915,6 +1057,20 @@ const registry = {
   add_client_service: addClientService,
   remove_client_service: removeClientService,
   list_client_services: listClientServices,
+  // notifications
+  find_notifications: findNotifications,
+  mark_notification_read: markNotificationRead,
+  mark_all_notifications_read: markAllNotificationsRead,
+  delete_notification: deleteNotification,
+  // content items (social media posts)
+  add_content_item: addContentItem,
+  find_content_item: findContentItem,
+  update_content_item: updateContentItem,
+  delete_content_item: deleteContentItem,
+  // client files
+  list_client_files: listClientFiles,
+  add_client_file_link: addClientFileLink,
+  delete_client_file: deleteClientFile,
 }
 
 export async function runTool(name, input) {

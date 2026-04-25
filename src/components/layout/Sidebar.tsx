@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Users, FileText, Bell, Folder, Settings,
   TrendingUp, CheckSquare, Menu, X,
-  BarChart3, MessageSquare, Sparkles
+  BarChart3, MessageSquare, Sparkles, FileBarChart2
 } from 'lucide-react'
 import { useState } from 'react'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -33,6 +33,7 @@ export function Sidebar() {
     { name: t.team, href: '/team', icon: Users },
     { name: t.contracts, href: '/contracts', icon: FileText },
     { name: 'Quotations', href: '/quotations', icon: FileText },
+    { name: 'Weekly Reports', href: '/reports', icon: FileBarChart2 },
     { name: t.files, href: '/files', icon: Folder },
     { name: t.campaigns, href: '/campaigns', icon: BarChart3 },
     { name: t.reminders, href: '/reminders', icon: MessageSquare },

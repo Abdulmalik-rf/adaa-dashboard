@@ -1138,6 +1138,264 @@ const clientFileTools = [
 ]
 
 // =============================================================================
+// WEEKLY REPORTS (client-facing performance + delivery recap)
+// =============================================================================
+// Same shape as the wa-agent's set, minus send_weekly_report_pdf — PDF
+// rendering needs puppeteer which won't run on Hostinger's shared runtime.
+
+const weeklyReportTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'create_weekly_report',
+      description:
+        'Start a new weekly client report. Auto-generates report_number (WR-YYYY-Wnn). After creating, use add_report_kpi / add_report_platform / add_report_content / add_report_campaign / add_report_task to fill in sections.',
+      parameters: {
+        type: 'object',
+        properties: {
+          client_company_name: { type: 'string' },
+          period_start: { type: 'string' },
+          period_end: { type: 'string' },
+          summary: { type: 'string' },
+          notes: { type: 'string' },
+          prepared_for_contact: { type: 'string' },
+          prepared_for_meta: { type: 'string' },
+          prepared_for_email: { type: 'string' },
+        },
+        required: ['client_company_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_weekly_report',
+      description: 'Search reports by report_number substring or client name.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_weekly_report',
+      description: 'Edit cover/summary/notes/status of a report.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          period_start: { type: 'string' },
+          period_end: { type: 'string' },
+          summary: { type: 'string' },
+          notes: { type: 'string' },
+          prepared_for_contact: { type: 'string' },
+          prepared_for_meta: { type: 'string' },
+          prepared_for_email: { type: 'string' },
+          status: { type: 'string', enum: ['draft', 'sent', 'archived'] },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_weekly_report',
+      description: 'Delete a report. DESTRUCTIVE — confirm first.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_kpi',
+      description: 'Append a KPI card to the 4-card snapshot row.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          label: { type: 'string' },
+          value: { type: 'string' },
+          delta_label: { type: 'string' },
+          delta_direction: { type: 'string', enum: ['up', 'down', 'flat'] },
+        },
+        required: ['report_id', 'label', 'value'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_kpi',
+      description: 'Remove one KPI card by zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
+        required: ['report_id', 'index'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_platform',
+      description: 'Append a platform row to the Social Media Performance table.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          platform: { type: 'string' },
+          dot_color: { type: 'string' },
+          followers: { type: 'number' },
+          delta_followers: { type: 'number' },
+          posts_count: { type: 'number' },
+          reach: { type: 'number' },
+          engagement_rate: { type: 'number' },
+        },
+        required: ['report_id', 'platform'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_platform',
+      description: 'Remove one platform row by zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
+        required: ['report_id', 'index'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_content',
+      description:
+        'Append a content row. Pass media_url to embed a thumbnail — call upload_image first if you only have the file.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          title: { type: 'string' },
+          platform: { type: 'string' },
+          content_type: { type: 'string' },
+          campaign_label: { type: 'string' },
+          publish_date: { type: 'string' },
+          media_url: { type: 'string' },
+          status: { type: 'string', enum: ['published', 'scheduled', 'draft', 'paused'] },
+        },
+        required: ['report_id', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_content',
+      description: 'Remove one content row by zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
+        required: ['report_id', 'index'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_campaign',
+      description: 'Append a campaign row.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          name: { type: 'string' },
+          platform: { type: 'string' },
+          objective: { type: 'string' },
+          spend: { type: 'number' },
+          currency: { type: 'string' },
+          result: { type: 'string' },
+          status: { type: 'string', enum: ['live', 'paused', 'ended'] },
+        },
+        required: ['report_id', 'name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_campaign',
+      description: 'Remove one campaign row by zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
+        required: ['report_id', 'index'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_task',
+      description: 'Append a task to Tasks Completed (kind="done") or Next Week\'s Plan (kind="plan").',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          kind: { type: 'string', enum: ['done', 'plan'] },
+          title: { type: 'string' },
+          owner: { type: 'string' },
+          date_label: { type: 'string' },
+        },
+        required: ['report_id', 'kind', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_task',
+      description: 'Remove a task by kind + zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          kind: { type: 'string', enum: ['done', 'plan'] },
+          index: { type: 'number' },
+        },
+        required: ['report_id', 'kind', 'index'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'upload_image',
+      description:
+        'Upload an image to the report-images bucket and return its public URL. Pass either a remote `image_url` OR base64 `image_data` with `mime`.',
+      parameters: {
+        type: 'object',
+        properties: {
+          image_url: { type: 'string' },
+          image_data: { type: 'string' },
+          mime: { type: 'string' },
+          filename_hint: { type: 'string' },
+        },
+      },
+    },
+  },
+]
+
+// =============================================================================
 // AGENCY SETTINGS (one-row config table — agency name, support email, etc.)
 // =============================================================================
 
@@ -1194,5 +1452,6 @@ export const tools = [
   ...notificationTools,
   ...contentItemTools,
   ...clientFileTools,
+  ...weeklyReportTools,
   ...settingsTools,
 ]

@@ -10,6 +10,7 @@ import pino from 'pino'
 import { handleMessage } from './agent.js'
 import { startScheduler } from './scheduler.js'
 import { setSock } from './sock-holder.js'
+import { runTool } from './tools/executors.js'
 
 const makeWASocket = baileys.default ?? baileys.makeWASocket ?? baileys
 
@@ -37,7 +38,7 @@ function extractText(msg) {
   ).trim()
 }
 
-async function imageToDataUrl(imageMessage) {
+async function downloadImage(imageMessage) {
   const stream = await downloadContentFromMessage(imageMessage, 'image')
   const chunks = []
   for await (const chunk of stream) chunks.push(chunk)
@@ -46,7 +47,25 @@ async function imageToDataUrl(imageMessage) {
     throw new Error('image too large (>8 MB)')
   }
   const mime = imageMessage.mimetype || 'image/jpeg'
-  return `data:${mime};base64,${buffer.toString('base64')}`
+  return { buffer, mime }
+}
+
+// Re-host an inbound image in Supabase Storage so the agent can paste the
+// public URL into report content (media_url), client_files, etc. Returns
+// null on failure — the agent still sees the image via the data URL, we
+// just lose the ability to embed it in tool calls.
+async function rehostInbound({ buffer, mime }, hint) {
+  try {
+    const result = await runTool('upload_image', {
+      image_data: buffer.toString('base64'),
+      mime,
+      filename_hint: hint || 'wa-inbound',
+    })
+    return result?.public_url ?? null
+  } catch (err) {
+    console.error('inbound image upload failed:', err?.message ?? err)
+    return null
+  }
 }
 
 async function start() {
@@ -121,9 +140,15 @@ async function handleOne(sock, msg) {
 
   const text = extractText(msg)
   const images = []
+  const imageUrls = []
   if (msg.message?.imageMessage) {
     try {
-      images.push(await imageToDataUrl(msg.message.imageMessage))
+      const downloaded = await downloadImage(msg.message.imageMessage)
+      // Vision: data URL for the LLM to *see*.
+      images.push(`data:${downloaded.mime};base64,${downloaded.buffer.toString('base64')}`)
+      // Embedding: public URL for the LLM to *use* in tool calls.
+      const url = await rehostInbound(downloaded, 'wa-inbound')
+      if (url) imageUrls.push(url)
     } catch (err) {
       await sock.sendMessage(jid, { text: `Could not read image: ${err?.message ?? 'unknown'}` })
       return
@@ -132,10 +157,10 @@ async function handleOne(sock, msg) {
 
   if (!text && images.length === 0) return
 
-  console.log(`[in] ${text || '(image only)'}${images.length ? ` [+${images.length} image]` : ''}`)
+  console.log(`[in] ${text || '(image only)'}${images.length ? ` [+${images.length} image]` : ''}${imageUrls.length ? ` [→ rehosted]` : ''}`)
 
   try { await sock.sendPresenceUpdate('composing', jid) } catch {}
-  const reply = await handleMessage(text, { images, sender })
+  const reply = await handleMessage(text, { images, imageUrls, sender })
   await sock.sendMessage(jid, { text: reply })
   try { await sock.sendPresenceUpdate('paused', jid) } catch {}
 

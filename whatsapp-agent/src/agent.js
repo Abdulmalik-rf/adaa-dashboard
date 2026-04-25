@@ -91,6 +91,13 @@ Right now is ${now} in ${tz}. Use this to compute relative times/dates precisely
 - Screenshots of a contract → extract key fields (title, parties, dates, value) and call add_contract (after find_client).
 - Screenshots of a social profile → call add_social_account.
 - If the image is ambiguous, ask what the user wants done with it in one short line.
+- **Inbound images are auto-rehosted in Supabase Storage** and the public URL appears at the end of the user message as `[uploaded_image: https://...]`. When the user wants the image used as a thumbnail, contract file, or content media, paste that URL into the relevant tool's media_url / file_path field — DON'T call upload_image again.
+
+## Weekly reports
+- "Make a weekly report for <client>" → create_weekly_report (period_start/end default to last Mon → today). Then incrementally fill it: add_report_kpi (up to 4), add_report_platform per channel, add_report_content per post, add_report_campaign per campaign, add_report_task with kind="done" or "plan".
+- After populating, call send_weekly_report_pdf(id) to deliver the PDF over WhatsApp.
+- "Add the following to the latest report …" → find_weekly_report most recent for that client, then append.
+- For images in content rows: if the user sent an image referenced as `[uploaded_image: …]`, pass that URL as media_url. Or call upload_image with image_url=<external URL> if they linked something.
 
 ## Reminders — IMPORTANT
 - When creating a reminder, the agent will actually send the user a WhatsApp message at the due date + due_time.
@@ -132,8 +139,14 @@ Every saved fact sits in the system prompt of every future call, so it costs tok
 - Call forget_fact(id) when the user says "forget …" or "drop that".${factsBlock}`
 }
 
-function userMessageItem(text, images) {
-  const parts = [{ type: 'input_text', text: text || '(no text, image only)' }]
+function userMessageItem(text, images, imageUrls) {
+  // The data URLs go to vision; the public URLs are surfaced in the text so
+  // the model can paste them into tool calls (media_url, file_path, etc.).
+  const baseText = text || '(no text, image only)'
+  const tag = (imageUrls ?? [])
+    .map((u) => `\n\n[uploaded_image: ${u}]`)
+    .join('')
+  const parts = [{ type: 'input_text', text: baseText + tag }]
   for (const url of images) parts.push({ type: 'input_image', image_url: url })
   return { type: 'message', role: 'user', content: parts }
 }
@@ -197,12 +210,13 @@ async function callModel(input) {
 
 export async function handleMessage(userText, opts = {}) {
   const images = opts.images ?? []
+  const imageUrls = opts.imageUrls ?? []
   const sender = opts.sender ?? 'default'
 
   // Start with the rolling per-sender history so follow-ups like "yes",
   // "Dammam", "at 3pm" stay anchored to the original request.
   const history = getHistory(sender)
-  const userMsg = userMessageItem(userText, images)
+  const userMsg = userMessageItem(userText, images, imageUrls)
   appendUser(sender, userMsg)
 
   let input = [...history, userMsg]

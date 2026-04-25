@@ -1182,6 +1182,289 @@ const memoryTools = [
 ]
 
 // =============================================================================
+// WEEKLY REPORTS (client-facing performance + delivery recap)
+// =============================================================================
+
+const weeklyReportTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'create_weekly_report',
+      description:
+        'Start a new weekly client report. Auto-generates report_number (WR-YYYY-Wnn). After creating, use add_report_kpi / add_report_platform / add_report_content / add_report_campaign / add_report_task to fill in sections. Call render_weekly_report_pdf at the end to send it to the user.',
+      parameters: {
+        type: 'object',
+        properties: {
+          client_company_name: {
+            type: 'string',
+            description: 'Client company name. Resolved to client_id; also used for the cover.',
+          },
+          period_start: { type: 'string', description: 'ISO YYYY-MM-DD. Defaults to last Monday.' },
+          period_end: { type: 'string', description: 'ISO YYYY-MM-DD. Defaults to today.' },
+          summary: { type: 'string', description: 'Executive summary paragraph.' },
+          notes: { type: 'string', description: 'Notes & recommendations paragraph.' },
+          prepared_for_contact: { type: 'string', description: 'e.g. "Ahmed Al-Rashid (Marketing Lead)".' },
+          prepared_for_meta: { type: 'string', description: 'e.g. "Tech / B2B SaaS".' },
+          prepared_for_email: { type: 'string' },
+        },
+        required: ['client_company_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_weekly_report',
+      description: 'Search reports by report_number substring or client name. Returns up to 5 matches.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_weekly_report',
+      description: 'Edit the cover/summary/notes of a report. For section data use the dedicated add_report_* / remove_report_* tools.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          period_start: { type: 'string' },
+          period_end: { type: 'string' },
+          summary: { type: 'string' },
+          notes: { type: 'string' },
+          prepared_for_contact: { type: 'string' },
+          prepared_for_meta: { type: 'string' },
+          prepared_for_email: { type: 'string' },
+          status: { type: 'string', enum: ['draft', 'sent', 'archived'] },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_weekly_report',
+      description: 'Delete a report. DESTRUCTIVE — confirm with user.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+  // ---------- KPI cards ----------
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_kpi',
+      description: 'Append a KPI card to the report (the 4-card snapshot row). Up to 4 cards render comfortably; a 5th will wrap.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          label: { type: 'string', description: 'e.g. "Total Followers", "Reach", "Ad Spend".' },
+          value: { type: 'string', description: 'Display value, e.g. "63.7K", "4.8%", "3,840 SAR".' },
+          delta_label: { type: 'string', description: 'e.g. "+412 (+0.6%)" or "on plan".' },
+          delta_direction: { type: 'string', enum: ['up', 'down', 'flat'] },
+        },
+        required: ['report_id', 'label', 'value'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_kpi',
+      description: 'Remove one KPI card by zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          index: { type: 'number' },
+        },
+        required: ['report_id', 'index'],
+      },
+    },
+  },
+  // ---------- Social platforms ----------
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_platform',
+      description: 'Append a platform row (Instagram, TikTok, etc.) to the Social Media Performance table.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          platform: { type: 'string', description: 'e.g. "Instagram", "TikTok", "Snapchat".' },
+          dot_color: { type: 'string', description: 'CSS color for the platform dot, e.g. "#E1306C".' },
+          followers: { type: 'number' },
+          delta_followers: { type: 'number', description: 'Net follower change for the period.' },
+          posts_count: { type: 'number' },
+          reach: { type: 'number' },
+          engagement_rate: { type: 'number', description: 'As a percent, e.g. 5.4 for 5.4%.' },
+        },
+        required: ['report_id', 'platform'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_platform',
+      description: 'Remove one platform row by zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
+        required: ['report_id', 'index'],
+      },
+    },
+  },
+  // ---------- Content delivered ----------
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_content',
+      description:
+        'Append a content row (post/reel/carousel/story/ad). Pass media_url to embed a thumbnail — use upload_image first to get a URL if you only have the file.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          title: { type: 'string' },
+          platform: { type: 'string' },
+          content_type: { type: 'string', description: 'e.g. "Reel", "Carousel", "Story", "Ad".' },
+          campaign_label: { type: 'string', description: 'e.g. "Spring 2026", "Always-on".' },
+          publish_date: { type: 'string', description: 'ISO YYYY-MM-DD or display string.' },
+          media_url: { type: 'string', description: 'Public URL of the thumbnail image.' },
+          status: { type: 'string', enum: ['published', 'scheduled', 'draft', 'paused'] },
+        },
+        required: ['report_id', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_content',
+      description: 'Remove one content row by zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
+        required: ['report_id', 'index'],
+      },
+    },
+  },
+  // ---------- Campaigns ----------
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_campaign',
+      description: 'Append a campaign row to the Active Campaigns table.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          name: { type: 'string' },
+          platform: { type: 'string', description: 'e.g. "Meta", "Google Ads", "TikTok Ads".' },
+          objective: { type: 'string', description: 'e.g. "Leads", "Reach", "Conversions".' },
+          spend: { type: 'number' },
+          currency: { type: 'string', description: 'Defaults to "SAR".' },
+          result: { type: 'string', description: 'Free-form, e.g. "154 leads · 18.4 SAR CPL".' },
+          status: { type: 'string', enum: ['live', 'paused', 'ended'] },
+        },
+        required: ['report_id', 'name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_campaign',
+      description: 'Remove one campaign row by zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
+        required: ['report_id', 'index'],
+      },
+    },
+  },
+  // ---------- Tasks done / plan ----------
+  {
+    type: 'function',
+    function: {
+      name: 'add_report_task',
+      description:
+        'Append an item to either Tasks Completed (kind="done") or Next Week\'s Plan (kind="plan").',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          kind: { type: 'string', enum: ['done', 'plan'] },
+          title: { type: 'string' },
+          owner: { type: 'string', description: 'Display name of the person responsible.' },
+          date_label: { type: 'string', description: 'e.g. "Apr 20" or "Due May 1".' },
+        },
+        required: ['report_id', 'kind', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_report_task',
+      description: 'Remove a task line by kind + zero-based index.',
+      parameters: {
+        type: 'object',
+        properties: {
+          report_id: { type: 'string' },
+          kind: { type: 'string', enum: ['done', 'plan'] },
+          index: { type: 'number' },
+        },
+        required: ['report_id', 'kind', 'index'],
+      },
+    },
+  },
+  // ---------- Image upload ----------
+  {
+    type: 'function',
+    function: {
+      name: 'upload_image',
+      description:
+        'Upload an image to the report-images bucket and return its public URL. Pass either a remote `image_url` (the agent will fetch and re-host it) OR a base64-encoded `image_data` with `mime` (when you have raw bytes from a WhatsApp/chat attachment). Returns { public_url } that you can pass to add_report_content.media_url etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          image_url: { type: 'string', description: 'Existing URL to fetch and re-host.' },
+          image_data: { type: 'string', description: 'Base64-encoded image bytes.' },
+          mime: { type: 'string', description: 'e.g. "image/png", "image/jpeg". Required when using image_data.' },
+          filename_hint: { type: 'string', description: 'Optional human label, e.g. "spring-promo-thumb".' },
+        },
+      },
+    },
+  },
+  // ---------- Render PDF ----------
+  {
+    type: 'function',
+    function: {
+      name: 'send_weekly_report_pdf',
+      description:
+        'Render the weekly report to an A4 PDF and send it to the user as a WhatsApp document. Call after the report is fully populated.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Report id.' } },
+        required: ['id'],
+      },
+    },
+  },
+]
+
+// =============================================================================
 // AGENCY SETTINGS (one-row config table — agency name, support email, etc.)
 // =============================================================================
 
@@ -1239,5 +1522,6 @@ export const tools = [
   ...notificationTools,
   ...contentItemTools,
   ...clientFileTools,
+  ...weeklyReportTools,
   ...settingsTools,
 ]

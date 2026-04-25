@@ -42,6 +42,25 @@ async function resolveClientIdByName(companyName) {
   return data?.[0]?.id ?? null
 }
 
+async function resolveContractIdByTitle(title) {
+  if (!title) return null
+  const { data, error } = await supabase
+    .from('contracts')
+    .select('id')
+    .ilike('title', `%${title}%`)
+    .order('created_at', { ascending: false })
+    .limit(1)
+  if (error) throw new Error(`contracts lookup failed: ${error.message}`)
+  return data?.[0]?.id ?? null
+}
+
+async function getClientIdForContract(contractId) {
+  if (!contractId) return null
+  const { data } = await supabase
+    .from('contracts').select('client_id').eq('id', contractId).maybeSingle()
+  return data?.client_id ?? null
+}
+
 // =============================================================================
 // CLIENTS
 // =============================================================================
@@ -203,6 +222,7 @@ async function deleteReminder(input) {
 async function addTask(input) {
   const client_id = await resolveClientIdByName(input.client_company_name)
   const assignee_id = await findOneTeamMemberIdByName(input.assignee_name)
+  const contract_id = await resolveContractIdByTitle(input.contract_title)
   const row = {
     title: input.title,
     description: input.description ?? null,
@@ -210,6 +230,7 @@ async function addTask(input) {
     status: 'todo',
     client_id,
     assignee_id,
+    contract_id,
     due_date: input.due_date ?? null,
   }
   const { data, error } = await supabase.from('tasks').insert(row).select().single()
@@ -217,7 +238,14 @@ async function addTask(input) {
   const paths = ['/tasks', '/my-tasks', '/my-dashboard', '/']
   if (client_id) paths.push(`/clients/${client_id}`)
   await revalidate(paths)
-  return { id: data.id, title: data.title, linked_client_id: client_id, assignee_id }
+  return {
+    id: data.id,
+    title: data.title,
+    linked_client_id: client_id,
+    linked_contract_id: contract_id,
+    assignee_id,
+    ...(input.contract_title && !contract_id ? { warning: `no contract matched "${input.contract_title}" — task created unlinked.` } : {}),
+  }
 }
 
 async function findTask(input) {
@@ -234,7 +262,10 @@ async function findTask(input) {
 
 async function updateTask(input) {
   const { id, ...rest } = input
+  // Allow null for contract_id so the user can unlink. pickDefined drops null,
+  // so handle it explicitly.
   const patch = pickDefined(rest, ['title', 'description', 'priority', 'status', 'due_date'])
+  if ('contract_id' in rest) patch.contract_id = rest.contract_id || null
   if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
   const { data, error } = await supabase
     .from('tasks').update(patch).eq('id', id).select().single()
@@ -271,6 +302,8 @@ async function addContract(input) {
     status: input.status ?? 'unsigned',
     value: input.value ?? null,
     notes: input.notes ?? null,
+    scope: input.scope ?? null,
+    file_url: input.file_url ?? null,
   }
   const { data, error } = await supabase.from('contracts').insert(row).select().single()
   if (error) throw new Error(`insert contracts failed: ${error.message}`)
@@ -292,7 +325,7 @@ async function updateContract(input) {
   const { id, ...rest } = input
   const patch = pickDefined(rest, [
     'title', 'contract_type', 'start_date', 'end_date', 'renewal_date',
-    'status', 'value', 'notes',
+    'status', 'value', 'notes', 'scope', 'file_url',
   ])
   if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
   const { data, error } = await supabase
@@ -731,6 +764,89 @@ async function doForgetFact(input) {
 }
 
 // =============================================================================
+// CONTRACT PAYMENTS + TASK→CONTRACT LINK
+// =============================================================================
+
+async function addContractPayment(input) {
+  const row = {
+    contract_id: input.contract_id,
+    amount: input.amount,
+    due_date: input.due_date,
+    paid_date: input.paid_date ?? null,
+    status: input.status ?? (input.paid_date ? 'paid' : 'pending'),
+    method: input.method ?? null,
+    notes: input.notes ?? null,
+  }
+  const { data, error } = await supabase
+    .from('contract_payments').insert(row).select().single()
+  if (error) throw new Error(`insert contract_payments failed: ${error.message}`)
+  const clientId = await getClientIdForContract(input.contract_id)
+  if (clientId) await revalidate([`/clients/${clientId}`])
+  return { id: data.id, amount: data.amount, due_date: data.due_date, status: data.status }
+}
+
+async function markPaymentPaid(input) {
+  const paid_date = input.paid_date ?? new Date().toISOString().split('T')[0]
+  const { data, error } = await supabase
+    .from('contract_payments')
+    .update({ status: 'paid', paid_date })
+    .eq('id', input.id)
+    .select()
+    .single()
+  if (error) throw new Error(`mark paid failed: ${error.message}`)
+  const clientId = await getClientIdForContract(data.contract_id)
+  if (clientId) await revalidate([`/clients/${clientId}`])
+  return { id: data.id, status: data.status, paid_date: data.paid_date }
+}
+
+async function updateContractPayment(input) {
+  const { id, ...rest } = input
+  const patch = pickDefined(rest, ['amount', 'due_date', 'paid_date', 'status', 'method', 'notes'])
+  if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
+  const { data, error } = await supabase
+    .from('contract_payments').update(patch).eq('id', id).select().single()
+  if (error) throw new Error(`update contract_payments failed: ${error.message}`)
+  const clientId = await getClientIdForContract(data.contract_id)
+  if (clientId) await revalidate([`/clients/${clientId}`])
+  return { id: data.id, updated_fields: Object.keys(patch) }
+}
+
+async function findContractPayments(input) {
+  const { data, error } = await supabase
+    .from('contract_payments')
+    .select('id, amount, due_date, paid_date, status, method, notes')
+    .eq('contract_id', input.contract_id)
+    .order('due_date', { ascending: true })
+  if (error) throw new Error(`fetch contract_payments failed: ${error.message}`)
+  return { payments: data ?? [] }
+}
+
+async function deleteContractPayment(input) {
+  const { data: existing } = await supabase
+    .from('contract_payments').select('contract_id').eq('id', input.id).maybeSingle()
+  const { error } = await supabase.from('contract_payments').delete().eq('id', input.id)
+  if (error) throw new Error(`delete contract_payments failed: ${error.message}`)
+  if (existing?.contract_id) {
+    const clientId = await getClientIdForContract(existing.contract_id)
+    if (clientId) await revalidate([`/clients/${clientId}`])
+  }
+  return { deleted: input.id }
+}
+
+async function linkTaskToContract(input) {
+  const contract_id = input.contract_id || null
+  const { data, error } = await supabase
+    .from('tasks')
+    .update({ contract_id })
+    .eq('id', input.task_id)
+    .select()
+    .single()
+  if (error) throw new Error(`link task→contract failed: ${error.message}`)
+  if (data.client_id) await revalidate([`/clients/${data.client_id}`])
+  return { id: data.id, contract_id: data.contract_id }
+}
+
+// =============================================================================
 // REGISTRY
 // =============================================================================
 
@@ -768,6 +884,13 @@ const registry = {
   find_contract: findContract,
   update_contract: updateContract,
   delete_contract: deleteContract,
+  // contract payments + task→contract link
+  add_contract_payment: addContractPayment,
+  mark_payment_paid: markPaymentPaid,
+  update_contract_payment: updateContractPayment,
+  find_contract_payments: findContractPayments,
+  delete_contract_payment: deleteContractPayment,
+  link_task_to_contract: linkTaskToContract,
   // social_accounts
   add_social_account: addSocialAccount,
   find_social_account: findSocialAccount,

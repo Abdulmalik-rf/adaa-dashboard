@@ -195,7 +195,7 @@ const tasksTools = [
     type: 'function',
     function: {
       name: 'add_task',
-      description: 'Create a task.',
+      description: 'Create a task. Optionally pass contract_title to link the task to a contract — the executor resolves it. Tasks linked to a contract show under that contract\'s "Delivery schedule" on the client page.',
       parameters: {
         type: 'object',
         properties: {
@@ -204,6 +204,10 @@ const tasksTools = [
           priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
           due_date: { type: 'string' },
           client_company_name: { type: 'string' },
+          contract_title: {
+            type: 'string',
+            description: 'Optional. Title (or substring) of the contract this task delivers.',
+          },
           assignee_name: {
             type: 'string',
             description: 'Optional. Team member full name to assign this task to.',
@@ -242,6 +246,7 @@ const tasksTools = [
           priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
           status: { type: 'string', enum: ['todo', 'in_progress', 'review', 'completed'] },
           due_date: { type: 'string' },
+          contract_id: { type: 'string', description: 'Pass id to link, null/empty to unlink.' },
         },
         required: ['id'],
       },
@@ -285,7 +290,9 @@ const contractsTools = [
             enum: ['unsigned', 'active', 'expired', 'ending_soon', 'renewed'],
           },
           value: { type: 'number', description: 'Contract value in the agency\'s currency.' },
-          notes: { type: 'string' },
+          notes: { type: 'string', description: 'Short note (one liner).' },
+          scope: { type: 'string', description: 'Long-form description of what the contract covers — appears on the client detail page under "What this covers".' },
+          file_url: { type: 'string', description: 'Public URL to the signed contract PDF.' },
         },
         required: ['client_id', 'title', 'contract_type', 'start_date', 'end_date'],
       },
@@ -323,6 +330,8 @@ const contractsTools = [
           },
           value: { type: 'number' },
           notes: { type: 'string' },
+          scope: { type: 'string', description: 'Long-form description of what the contract covers.' },
+          file_url: { type: 'string', description: 'Public URL to the signed contract PDF.' },
         },
         required: ['id'],
       },
@@ -489,6 +498,107 @@ const campaignsTools = [
         type: 'object',
         properties: { id: { type: 'string' } },
         required: ['id'],
+      },
+    },
+  },
+]
+
+// =============================================================================
+// CONTRACT PAYMENTS + TASK-CONTRACT LINK
+// =============================================================================
+
+const contractPaymentTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'add_contract_payment',
+      description: 'Add one row to a contract\'s payment schedule.',
+      parameters: {
+        type: 'object',
+        properties: {
+          contract_id: { type: 'string' },
+          amount: { type: 'number' },
+          due_date: { type: 'string' },
+          paid_date: { type: 'string' },
+          status: { type: 'string', enum: ['pending', 'paid', 'overdue', 'cancelled'] },
+          method: { type: 'string' },
+          notes: { type: 'string' },
+        },
+        required: ['contract_id', 'amount', 'due_date'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mark_payment_paid',
+      description: 'Set a payment row to status="paid" and stamp paid_date (defaults to today).',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          paid_date: { type: 'string' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_contract_payment',
+      description: 'Update fields on a contract payment row.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          amount: { type: 'number' },
+          due_date: { type: 'string' },
+          paid_date: { type: 'string' },
+          status: { type: 'string', enum: ['pending', 'paid', 'overdue', 'cancelled'] },
+          method: { type: 'string' },
+          notes: { type: 'string' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_contract_payments',
+      description: 'List payments for a contract.',
+      parameters: {
+        type: 'object',
+        properties: { contract_id: { type: 'string' } },
+        required: ['contract_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_contract_payment',
+      description: 'Delete a payment row. DESTRUCTIVE — confirm first.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'link_task_to_contract',
+      description: 'Attach an existing task to a contract. Pass contract_id=null to unlink.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'string' },
+          contract_id: { type: 'string' },
+        },
+        required: ['task_id'],
       },
     },
   },
@@ -795,6 +905,7 @@ const quotationTools = [
 
 export const tools = [
   ...quotationTools,
+  ...contractPaymentTools,
   ...clientsTools,
   ...remindersTools,
   ...tasksTools,

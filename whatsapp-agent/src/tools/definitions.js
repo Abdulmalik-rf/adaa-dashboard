@@ -194,7 +194,7 @@ const tasksTools = [
     type: 'function',
     function: {
       name: 'add_task',
-      description: 'Create a task.',
+      description: 'Create a task. Optionally link it to a specific contract by passing contract_title — the executor resolves it to contract_id. Tasks linked to a contract show up under that contract\'s "Delivery schedule" on the client page.',
       parameters: {
         type: 'object',
         properties: {
@@ -203,6 +203,10 @@ const tasksTools = [
           priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
           due_date: { type: 'string' },
           client_company_name: { type: 'string' },
+          contract_title: {
+            type: 'string',
+            description: 'Optional. Title (or substring) of the contract this task delivers. Resolved to contract_id server-side.',
+          },
           assignee_name: {
             type: 'string',
             description: 'Optional. Team member full name to assign this task to.',
@@ -231,7 +235,7 @@ const tasksTools = [
     type: 'function',
     function: {
       name: 'update_task',
-      description: 'Update a task. Set status to "completed" to mark done.',
+      description: 'Update a task. Set status to "completed" to mark done. Pass contract_id (or null to unlink) to change which contract the task delivers.',
       parameters: {
         type: 'object',
         properties: {
@@ -241,6 +245,7 @@ const tasksTools = [
           priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
           status: { type: 'string', enum: ['todo', 'in_progress', 'review', 'completed'] },
           due_date: { type: 'string' },
+          contract_id: { type: 'string', description: 'Link this task to a contract id, or pass null to unlink.' },
         },
         required: ['id'],
       },
@@ -284,7 +289,9 @@ const contractsTools = [
             enum: ['unsigned', 'active', 'expired', 'ending_soon', 'renewed'],
           },
           value: { type: 'number', description: 'Contract value in the agency\'s currency.' },
-          notes: { type: 'string' },
+          notes: { type: 'string', description: 'Short note (one liner).' },
+          scope: { type: 'string', description: 'Long-form description of what the contract covers — appears on the client detail page under "What this covers". Use multiple sentences.' },
+          file_url: { type: 'string', description: 'Public URL to the signed contract PDF (Supabase storage, Google Drive share link, etc.).' },
         },
         required: ['client_id', 'title', 'contract_type', 'start_date', 'end_date'],
       },
@@ -322,6 +329,8 @@ const contractsTools = [
           },
           value: { type: 'number' },
           notes: { type: 'string' },
+          scope: { type: 'string', description: 'Long-form description of what the contract covers.' },
+          file_url: { type: 'string', description: 'Public URL to the signed contract PDF.' },
         },
         required: ['id'],
       },
@@ -488,6 +497,107 @@ const campaignsTools = [
         type: 'object',
         properties: { id: { type: 'string' } },
         required: ['id'],
+      },
+    },
+  },
+]
+
+// =============================================================================
+// CONTRACT PAYMENTS + TASK-CONTRACT LINK
+// =============================================================================
+
+const contractPaymentTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'add_contract_payment',
+      description: 'Add one row to a contract\'s payment schedule. Use when the user says "schedule a payment of X SAR for contract Y due Z" or "log a 5000 SAR payment for the Acme retainer". Use find_contract first to get contract_id.',
+      parameters: {
+        type: 'object',
+        properties: {
+          contract_id: { type: 'string' },
+          amount: { type: 'number', description: 'In SAR.' },
+          due_date: { type: 'string', description: 'ISO YYYY-MM-DD.' },
+          paid_date: { type: 'string', description: 'Optional. Set if the payment was already made.' },
+          status: { type: 'string', enum: ['pending', 'paid', 'overdue', 'cancelled'] },
+          method: { type: 'string', description: 'e.g. "bank transfer", "cash", "STC Pay".' },
+          notes: { type: 'string' },
+        },
+        required: ['contract_id', 'amount', 'due_date'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mark_payment_paid',
+      description: 'Flip a contract payment\'s status to "paid" and set its paid_date. Defaults paid_date to today if not given.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Payment row id.' },
+          paid_date: { type: 'string', description: 'Optional ISO date — defaults to today.' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_contract_payment',
+      description: 'Update any field on a contract payment row.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          amount: { type: 'number' },
+          due_date: { type: 'string' },
+          paid_date: { type: 'string' },
+          status: { type: 'string', enum: ['pending', 'paid', 'overdue', 'cancelled'] },
+          method: { type: 'string' },
+          notes: { type: 'string' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_contract_payments',
+      description: 'List the payment schedule for a contract.',
+      parameters: {
+        type: 'object',
+        properties: { contract_id: { type: 'string' } },
+        required: ['contract_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_contract_payment',
+      description: 'Delete a contract payment row. DESTRUCTIVE — confirm with user first.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'link_task_to_contract',
+      description: 'Attach an existing task to a contract so it shows up under that contract\'s delivery schedule. Pass contract_id=null to unlink.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'string' },
+          contract_id: { type: 'string', description: 'Contract id, or null/empty to unlink.' },
+        },
+        required: ['task_id'],
       },
     },
   },
@@ -844,6 +954,7 @@ export const tools = [
   ...remindersTools,
   ...tasksTools,
   ...contractsTools,
+  ...contractPaymentTools,
   ...socialAccountsTools,
   ...campaignsTools,
   ...teamTools,

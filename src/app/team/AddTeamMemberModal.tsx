@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Plus, X, UserPlus, Briefcase, Mail, Phone, ShieldCheck } from "lucide-react"
+import { Plus, X, UserPlus, Briefcase, Mail, Phone, ShieldCheck, Banknote } from "lucide-react"
 import { createTeamMember } from "@/app/actions/team"
 
 export function AddTeamMemberModal({ t }: { t: any }) {
@@ -74,6 +74,25 @@ export function AddTeamMemberModal({ t }: { t: any }) {
             <div className="relative">
               <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
               <input name="phone" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-gray-900 bg-gray-50/50" placeholder="+966" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-2 col-span-2">
+              <label className="text-sm font-semibold">Monthly salary</label>
+              <div className="relative">
+                <Banknote className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <input name="salary" type="number" min="0" step="0.01" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-gray-900 bg-gray-50/50" placeholder="e.g. 5000" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold">Currency</label>
+              <select name="salary_currency" defaultValue="SAR" className="w-full p-2.5 border rounded-xl dark:bg-gray-900 bg-gray-50/50 text-sm appearance-none">
+                <option value="SAR">SAR</option>
+                <option value="USD">USD</option>
+                <option value="AED">AED</option>
+                <option value="EUR">EUR</option>
+              </select>
             </div>
           </div>
 

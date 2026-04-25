@@ -40,6 +40,7 @@ export default async function TeamPage() {
               <TableHead className="py-4">Member</TableHead>
               <TableHead>Contact Info</TableHead>
               <TableHead>Role & Position</TableHead>
+              <TableHead>Salary / mo</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -78,6 +79,17 @@ export default async function TeamPage() {
                    </div>
                 </TableCell>
                 <TableCell>
+                  {member.salary != null ? (
+                    <div>
+                      <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                        {Number(member.salary).toLocaleString('en-US')} <span className="text-[10px] font-medium opacity-60">{member.salary_currency || 'SAR'}</span>
+                      </p>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-gray-400 italic">not set</span>
+                  )}
+                </TableCell>
+                <TableCell>
                   <Badge variant={member.status === 'active' ? 'success' : 'secondary'} className="rounded-full px-3">
                     {member.status}
                   </Badge>
@@ -98,7 +110,7 @@ export default async function TeamPage() {
             ))}
             {(!teamMembers || teamMembers.length === 0) && (
               <TableRow>
-                <TableCell colSpan={5} className="h-32 text-center text-gray-500">
+                <TableCell colSpan={6} className="h-32 text-center text-gray-500">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="h-8 w-8 text-gray-200" />
                     <p>No team members found.</p>

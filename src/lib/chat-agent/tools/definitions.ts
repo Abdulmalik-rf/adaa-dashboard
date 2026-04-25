@@ -613,7 +613,7 @@ const teamTools = [
     type: 'function',
     function: {
       name: 'add_team_member',
-      description: 'Add a staff member to the team.',
+      description: 'Add a staff member to the team. Salary is monthly.',
       parameters: {
         type: 'object',
         properties: {
@@ -625,6 +625,8 @@ const teamTools = [
           whatsapp: { type: 'string' },
           status: { type: 'string', enum: ['active', 'inactive'] },
           notes: { type: 'string' },
+          salary: { type: 'number', description: 'Monthly salary in salary_currency.' },
+          salary_currency: { type: 'string', description: 'Defaults to SAR.' },
         },
         required: ['full_name'],
       },
@@ -646,7 +648,7 @@ const teamTools = [
     type: 'function',
     function: {
       name: 'update_team_member',
-      description: 'Update a team member.',
+      description: 'Update a team member. salary is monthly.',
       parameters: {
         type: 'object',
         properties: {
@@ -659,6 +661,8 @@ const teamTools = [
           whatsapp: { type: 'string' },
           status: { type: 'string', enum: ['active', 'inactive'] },
           notes: { type: 'string' },
+          salary: { type: 'number' },
+          salary_currency: { type: 'string' },
         },
         required: ['id'],
       },

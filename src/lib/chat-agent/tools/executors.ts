@@ -476,6 +476,8 @@ async function addTeamMember(input) {
     whatsapp: input.whatsapp ?? null,
     status: input.status ?? 'active',
     notes: input.notes ?? null,
+    salary: input.salary ?? null,
+    salary_currency: input.salary_currency ?? 'SAR',
   }
   const { data, error } = await supabase.from('team_members').insert(row).select().single()
   if (error) throw new Error(`insert team_members failed: ${error.message}`)
@@ -497,6 +499,7 @@ async function updateTeamMember(input) {
   const { id, ...rest } = input
   const patch = pickDefined(rest, [
     'full_name', 'role', 'job_title', 'email', 'phone', 'whatsapp', 'status', 'notes',
+    'salary', 'salary_currency',
   ])
   if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
   const { data, error } = await supabase

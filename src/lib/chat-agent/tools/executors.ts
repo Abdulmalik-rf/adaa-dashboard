@@ -275,6 +275,15 @@ async function updateTask(input) {
   const { id, ...rest } = input
   const patch: any = pickDefined(rest, ['title', 'description', 'priority', 'status', 'due_date'])
   if ('contract_id' in rest) patch.contract_id = rest.contract_id || null
+  if ('assignee_name' in rest) {
+    if (rest.assignee_name === '' || rest.assignee_name === null) {
+      patch.assignee_id = null
+    } else if (rest.assignee_name) {
+      const aid = await findOneTeamMemberIdByName(rest.assignee_name)
+      if (aid) patch.assignee_id = aid
+      else return { warning: `no team member matched "${rest.assignee_name}" — task unchanged.` }
+    }
+  }
   if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
   const { data, error } = await supabase
     .from('tasks').update(patch).eq('id', id).select().single()
@@ -359,25 +368,55 @@ async function deleteContract(input) {
 // SOCIAL ACCOUNTS
 // =============================================================================
 
+// Mirrors src/app/actions/social_accounts.ts — same scheme so dashboard and
+// agent stay interoperable. Note: NOT real crypto.
+function mockSecureEncrypt(text: string | null | undefined): string | null {
+  if (!text) return null
+  return `enc__${Buffer.from(String(text)).toString('base64')}__secure`
+}
+
+async function clearOtherDefaults(client_id, platform) {
+  await supabase
+    .from('social_accounts')
+    .update({ is_default: false })
+    .eq('client_id', client_id)
+    .eq('platform', platform)
+}
+
 async function addSocialAccount(input) {
+  const isDefault = !!input.is_default
+  if (isDefault) await clearOtherDefaults(input.client_id, input.platform)
+
   const row = {
     client_id: input.client_id,
     platform: input.platform,
+    account_name: input.account_name ?? null,
     username: input.username ?? null,
+    email: input.email ?? null,
+    external_id: input.external_id ?? null,
+    encrypted_password: mockSecureEncrypt(input.password),
     url: input.url ?? null,
     notes: input.notes ?? null,
     status: input.status ?? 'active',
+    is_default: isDefault,
   }
   const { data, error } = await supabase.from('social_accounts').insert(row).select().single()
   if (error) throw new Error(`insert social_accounts failed: ${error.message}`)
   await revalidate([`/clients/${input.client_id}`])
-  return { id: data.id, platform: data.platform, username: data.username }
+  return {
+    id: data.id,
+    platform: data.platform,
+    account_name: data.account_name,
+    is_default: data.is_default,
+  }
 }
 
 async function findSocialAccount(input) {
   let q = supabase
     .from('social_accounts')
-    .select('id, platform, username, url, status, client_id')
+    .select(
+      'id, platform, account_name, username, email, external_id, url, status, is_default, client_id',
+    )
     .eq('client_id', input.client_id)
   if (input.platform) q = q.eq('platform', input.platform)
   const { data, error } = await q
@@ -387,13 +426,47 @@ async function findSocialAccount(input) {
 
 async function updateSocialAccount(input) {
   const { id, ...rest } = input
-  const patch = pickDefined(rest, ['username', 'url', 'notes', 'status'])
+  const patch = pickDefined(rest, [
+    'account_name', 'username', 'email', 'external_id', 'url', 'notes', 'status',
+  ])
+  if (rest.password !== undefined && rest.password !== null && rest.password !== '') {
+    patch.encrypted_password = mockSecureEncrypt(rest.password)
+  }
+  if (typeof rest.is_default === 'boolean') {
+    patch.is_default = rest.is_default
+  }
   if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
+
+  if (patch.is_default === true) {
+    const { data: existing } = await supabase
+      .from('social_accounts')
+      .select('client_id, platform')
+      .eq('id', id)
+      .maybeSingle()
+    if (existing) await clearOtherDefaults(existing.client_id, existing.platform)
+  }
+
   const { data, error } = await supabase
     .from('social_accounts').update(patch).eq('id', id).select().single()
   if (error) throw new Error(`update social_accounts failed: ${error.message}`)
   await revalidate([`/clients/${data.client_id}`])
   return { id: data.id, updated_fields: Object.keys(patch), platform: data.platform }
+}
+
+async function setDefaultSocialAccount(input) {
+  const { data: target } = await supabase
+    .from('social_accounts')
+    .select('client_id, platform')
+    .eq('id', input.id)
+    .maybeSingle()
+  if (!target) throw new Error(`social_accounts ${input.id} not found`)
+
+  await clearOtherDefaults(target.client_id, target.platform)
+  const { error } = await supabase
+    .from('social_accounts').update({ is_default: true }).eq('id', input.id)
+  if (error) throw new Error(`set default failed: ${error.message}`)
+  await revalidate([`/clients/${target.client_id}`])
+  return { id: input.id, is_default: true }
 }
 
 async function deleteSocialAccount(input) {
@@ -889,10 +962,19 @@ async function findContentItem(input) {
 
 async function updateContentItem(input) {
   const { id, ...rest } = input
-  const patch = pickDefined(rest, [
+  const patch: any = pickDefined(rest, [
     'title', 'caption', 'media_url', 'publish_date', 'publish_time',
     'schedule_status', 'task_status', 'campaign_name', 'notes',
   ])
+  if ('assignee_name' in rest) {
+    if (rest.assignee_name === '' || rest.assignee_name === null) {
+      patch.assignee_id = null
+    } else if (rest.assignee_name) {
+      const aid = await findOneTeamMemberIdByName(rest.assignee_name)
+      if (aid) patch.assignee_id = aid
+      else return { warning: `no team member matched "${rest.assignee_name}" — content item unchanged.` }
+    }
+  }
   if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
   const { data, error } = await supabase
     .from('content_items').update(patch).eq('id', id).select().single()
@@ -949,6 +1031,43 @@ async function deleteClientFile(input) {
 }
 
 // =============================================================================
+// AGENCY SETTINGS
+// =============================================================================
+// One-row config table keyed on id='default'. Token is encrypted at rest with
+// the same scheme as social_accounts; never returned by get_agency_settings.
+
+async function getAgencySettings() {
+  const { data, error } = await supabase
+    .from('agency_settings')
+    .select('agency_name, support_email, whatsapp_provider, updated_at')
+    .eq('id', 'default')
+    .maybeSingle()
+  if (error) throw new Error(`fetch agency_settings failed: ${error.message}`)
+  return data ?? {}
+}
+
+async function updateAgencySettings(input) {
+  const patch: any = pickDefined(input, ['agency_name', 'support_email', 'whatsapp_provider'])
+  if (
+    input.whatsapp_api_token !== undefined &&
+    input.whatsapp_api_token !== null &&
+    input.whatsapp_api_token !== ''
+  ) {
+    patch.whatsapp_api_token_encrypted = mockSecureEncrypt(input.whatsapp_api_token)
+  }
+  if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
+  patch.updated_at = new Date().toISOString()
+  const { error } = await supabase
+    .from('agency_settings')
+    .upsert({ id: 'default', ...patch }, { onConflict: 'id' })
+  if (error) throw new Error(`update agency_settings failed: ${error.message}`)
+  await revalidate(['/settings', '/'])
+  const updated = Object.keys(patch).filter(k => k !== 'updated_at' && k !== 'whatsapp_api_token_encrypted')
+  if (patch.whatsapp_api_token_encrypted) updated.push('whatsapp_api_token (rotated)')
+  return { updated_fields: updated }
+}
+
+// =============================================================================
 // REGISTRY
 // =============================================================================
 // NOTE: send_quotation_pdf and long-term memory tools are NOT exposed here —
@@ -996,6 +1115,7 @@ const registry: Record<string, (input: any) => Promise<any>> = {
   add_social_account: addSocialAccount,
   find_social_account: findSocialAccount,
   update_social_account: updateSocialAccount,
+  set_default_social_account: setDefaultSocialAccount,
   delete_social_account: deleteSocialAccount,
   // campaigns
   add_campaign: addCampaign,
@@ -1027,6 +1147,9 @@ const registry: Record<string, (input: any) => Promise<any>> = {
   list_client_files: listClientFiles,
   add_client_file_link: addClientFileLink,
   delete_client_file: deleteClientFile,
+  // agency settings
+  get_agency_settings: getAgencySettings,
+  update_agency_settings: updateAgencySettings,
 }
 
 export async function runTool(name, input) {

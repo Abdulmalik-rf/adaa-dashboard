@@ -235,7 +235,7 @@ const tasksTools = [
     type: 'function',
     function: {
       name: 'update_task',
-      description: 'Update a task. Set status to "completed" to mark done. Pass contract_id (or null to unlink) to change which contract the task delivers.',
+      description: 'Update a task. Set status to "completed" to mark done. Pass contract_id (or null to unlink) to change which contract the task delivers. Pass assignee_name to reassign — agent resolves to assignee_id.',
       parameters: {
         type: 'object',
         properties: {
@@ -246,6 +246,10 @@ const tasksTools = [
           status: { type: 'string', enum: ['todo', 'in_progress', 'review', 'completed'] },
           due_date: { type: 'string' },
           contract_id: { type: 'string', description: 'Link this task to a contract id, or pass null to unlink.' },
+          assignee_name: {
+            type: 'string',
+            description: 'Reassign to this team member (resolved by name). Pass an empty string to unassign.',
+          },
         },
         required: ['id'],
       },
@@ -360,16 +364,36 @@ const socialAccountsTools = [
     function: {
       name: 'add_social_account',
       description:
-        'Attach a social media account (Instagram, TikTok, Snapchat, etc.) to a client. Use find_client first to get the client_id.',
+        'Attach a social/ads account (Instagram, TikTok, Snapchat, Google Ads, etc.) to a client. Use find_client first to get the client_id. Pass is_default=true to mark this as the primary account for that platform — any existing default for the same client+platform is auto-cleared.',
       parameters: {
         type: 'object',
         properties: {
           client_id: { type: 'string' },
-          platform: { type: 'string', description: 'e.g. "instagram", "tiktok", "snapchat".' },
-          username: { type: 'string' },
+          platform: {
+            type: 'string',
+            description: 'instagram | tiktok | snapchat | google_ads | facebook | x | linkedin | other.',
+          },
+          account_name: {
+            type: 'string',
+            description: 'Display label, e.g. "TechNova Insta" or "TechNova Ad Manager".',
+          },
+          username: { type: 'string', description: 'Handle, e.g. "technova_sa".' },
+          email: { type: 'string', description: 'Email tied to this account.' },
+          external_id: {
+            type: 'string',
+            description: 'Platform-specific id, e.g. Google Ads MCC ID, Snapchat UUID.',
+          },
+          password: {
+            type: 'string',
+            description: 'Stored encrypted. Only pass when the user is intentionally sharing it.',
+          },
           url: { type: 'string' },
           notes: { type: 'string' },
           status: { type: 'string', enum: ['active', 'inactive', 'needs_attention'] },
+          is_default: {
+            type: 'boolean',
+            description: 'Mark as the primary account for this platform.',
+          },
         },
         required: ['client_id', 'platform'],
       },
@@ -380,7 +404,7 @@ const socialAccountsTools = [
     function: {
       name: 'find_social_account',
       description:
-        'Find a client\'s social accounts. Pass client_id to list all accounts for that client.',
+        'Find a client\'s social accounts. Pass client_id to list all accounts for that client. Returns account_name, username, email, is_default, etc.',
       parameters: {
         type: 'object',
         properties: {
@@ -395,16 +419,35 @@ const socialAccountsTools = [
     type: 'function',
     function: {
       name: 'update_social_account',
-      description: 'Update a social account.',
+      description:
+        'Update a social account. To rotate the password, pass the new value in `password` — it will be encrypted server-side. Setting is_default=true auto-clears default on the other accounts of the same client+platform.',
       parameters: {
         type: 'object',
         properties: {
           id: { type: 'string' },
+          account_name: { type: 'string' },
           username: { type: 'string' },
+          email: { type: 'string' },
+          external_id: { type: 'string' },
+          password: { type: 'string', description: 'New password to rotate to. Stored encrypted.' },
           url: { type: 'string' },
           notes: { type: 'string' },
           status: { type: 'string', enum: ['active', 'inactive', 'needs_attention'] },
+          is_default: { type: 'boolean' },
         },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_default_social_account',
+      description:
+        'Mark one social account as the default for its client+platform. Auto-clears default on any other account in the same group.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
         required: ['id'],
       },
     },
@@ -816,7 +859,7 @@ const contentItemTools = [
     type: 'function',
     function: {
       name: 'update_content_item',
-      description: 'Edit a content item — change schedule, status, caption, etc.',
+      description: 'Edit a content item — change schedule, status, caption, reassign owner, etc.',
       parameters: {
         type: 'object',
         properties: {
@@ -829,6 +872,10 @@ const contentItemTools = [
           schedule_status: { type: 'string', enum: ['idea', 'pending', 'approved', 'scheduled', 'published'] },
           task_status: { type: 'string', enum: ['not_started', 'in_progress', 'completed'] },
           campaign_name: { type: 'string' },
+          assignee_name: {
+            type: 'string',
+            description: 'Reassign to this team member (resolved by name). Pass an empty string to unassign.',
+          },
           notes: { type: 'string' },
         },
         required: ['id'],
@@ -1135,6 +1182,46 @@ const memoryTools = [
 ]
 
 // =============================================================================
+// AGENCY SETTINGS (one-row config table — agency name, support email, etc.)
+// =============================================================================
+
+const settingsTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'get_agency_settings',
+      description:
+        'Read the agency-wide settings: agency_name, support_email, whatsapp_provider. The encrypted token is never returned.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_agency_settings',
+      description:
+        'Update one or more agency settings. Only include the fields you want to change. The token is stored encrypted; pass `whatsapp_api_token` to rotate.',
+      parameters: {
+        type: 'object',
+        properties: {
+          agency_name: { type: 'string' },
+          support_email: { type: 'string' },
+          whatsapp_provider: {
+            type: 'string',
+            enum: ['twilio', 'meta', 'apiwha'],
+            description: 'API provider used for outbound notifications.',
+          },
+          whatsapp_api_token: {
+            type: 'string',
+            description: 'New API token to store. Encrypted server-side.',
+          },
+        },
+      },
+    },
+  },
+]
+
+// =============================================================================
 
 export const tools = [
   ...memoryTools,
@@ -1152,4 +1239,5 @@ export const tools = [
   ...notificationTools,
   ...contentItemTools,
   ...clientFileTools,
+  ...settingsTools,
 ]

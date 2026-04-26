@@ -3,6 +3,7 @@ import { revalidate } from '../revalidate.js'
 import { rememberFact, forgetFact } from '../memory-store.js'
 import { generateQuotationPdf } from '../quotation-pdf.js'
 import { getSock, isReady } from '../sock-holder.js'
+import { getRequest } from '../context.js'
 
 // =============================================================================
 // HELPERS
@@ -151,6 +152,12 @@ async function addReminder(input) {
       ? `Note: no client matched "${input.client_company_name}" — reminder saved but not linked to a client.`
       : null
 
+  // Tag this reminder with whoever asked for it so the scheduler fires it
+  // back to the same WhatsApp user. Falls back to NULL when called from a
+  // non-request context (e.g. dashboard chat widget) — scheduler treats
+  // NULL as "use the default first-user JID".
+  const notify_jid = getRequest()?.senderJid ?? null
+
   const row = {
     client_id,
     title: input.title,
@@ -160,6 +167,7 @@ async function addReminder(input) {
     due_time: input.due_time ?? null,
     priority: input.priority ?? 'medium',
     status: 'pending',
+    notify_jid,
   }
   const { data, error } = await supabase.from('reminders').insert(row).select().single()
   if (error) throw new Error(`insert reminders failed: ${error.message}`)

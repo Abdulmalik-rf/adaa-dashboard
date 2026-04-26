@@ -69,13 +69,13 @@ function formatReminderMessage(r, timeStr) {
   return msg
 }
 
-async function tick(sock, notifyJid, tz) {
+async function tick(sock, notifyJids, tz) {
   const nowStr = nowInTimezone(tz)
   const today = nowStr.slice(0, 10)
 
   const { data, error } = await supabase
     .from('reminders')
-    .select('id, title, description, due_date, due_time, priority, status')
+    .select('id, title, description, due_date, due_time, priority, status, notify_jid')
     .eq('status', 'pending')
     .lte('due_date', today)
 
@@ -84,6 +84,8 @@ async function tick(sock, notifyJid, tz) {
     return
   }
   if (!data || data.length === 0) return
+
+  const fallbackJid = notifyJids[0]
 
   for (const r of data) {
     if (firedSet.has(r.id)) continue
@@ -100,36 +102,51 @@ async function tick(sock, notifyJid, tz) {
       continue
     }
 
+    // Per-reminder routing: if we know who created it (notify_jid set when
+    // the WhatsApp executor inserted the row), send to that user. Otherwise
+    // fall back to user 1 — preserves existing behaviour for legacy rows
+    // and for reminders the dashboard creates.
+    const target = r.notify_jid && notifyJids.includes(r.notify_jid)
+      ? r.notify_jid
+      : (r.notify_jid || fallbackJid)
+
     const body = formatReminderMessage(r, r.due_time ? timeStr.slice(0, 5) : null)
     try {
-      await sock.sendMessage(notifyJid, { text: body })
+      await sock.sendMessage(target, { text: body })
       firedSet.add(r.id)
       await saveFired()
-      console.log(`[scheduler] fired reminder ${r.id}: ${r.title}`)
+      console.log(`[scheduler] fired reminder ${r.id} → ${target}: ${r.title}`)
     } catch (err) {
       console.error(`[scheduler] send failed for ${r.id}:`, err?.message ?? err)
     }
   }
 }
 
-export async function startScheduler(sock, notifyJid) {
+export async function startScheduler(sock, notifyJids) {
   if (started) return
   started = true
+
+  // Backward compat: caller used to pass a single string.
+  const jids = Array.isArray(notifyJids) ? notifyJids : [notifyJids]
+  if (jids.length === 0) {
+    console.error('[scheduler] no notify JIDs configured — refusing to start')
+    return
+  }
 
   const tz = process.env.TIMEZONE ?? 'Asia/Riyadh'
   await loadFired()
   console.log(
-    `[scheduler] started. tz=${tz} notify=${notifyJid} already_fired=${firedSet.size}`,
+    `[scheduler] started. tz=${tz} notify=[${jids.join(', ')}] already_fired=${firedSet.size}`,
   )
 
   const runTick = async () => {
     try {
-      await tick(sock, notifyJid, tz)
+      await tick(sock, jids, tz)
     } catch (err) {
       console.error('[scheduler] tick error:', err?.message ?? err)
     }
   }
 
-  await runTick() // immediate check
+  await runTick()
   setInterval(runTick, POLL_INTERVAL_MS)
 }

@@ -1102,24 +1102,42 @@ async function removeJsonArrayAt(reportId, column, index) {
   return { removed }
 }
 
+// Service-block defaults — title + icon for each canonical kind.
+const SERVICE_KIND_DEFAULTS: Record<string, { title: string; icon: string }> = {
+  seo:        { title: 'SEO',                icon: '🔍' },
+  cold_mail:  { title: 'Cold Mailing',       icon: '✉️' },
+  social:     { title: 'Social Media',       icon: '📱' },
+  paid_promo: { title: 'Paid Promotions',    icon: '🎯' },
+  content:    { title: 'Content Production', icon: '🎬' },
+  branding:   { title: 'Branding & Design',  icon: '🎨' },
+  web:        { title: 'Website / Landing',  icon: '🌐' },
+  custom:     { title: 'Service',            icon: '⭐' },
+}
+
+function newServiceId() {
+  return 'svc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10)
+}
+
 async function createWeeklyReport(input) {
   const client_id = await resolveClientIdByName(input.client_company_name)
   const period_end = input.period_end || new Date().toISOString().split('T')[0]
   const period_start = input.period_start || lastMondayISO()
   const report_number = await nextReportNumber()
+  const customer_name = input.customer_name ?? input.client_company_name ?? null
 
   const row = {
     report_number,
     client_id,
-    client_name_snapshot: input.client_company_name,
+    client_name_snapshot: customer_name,
+    customer_name,
+    customer_company: input.customer_company ?? null,
+    cover_image_url: input.cover_image_url ?? null,
     period_start,
     period_end,
     issue_date: new Date().toISOString().split('T')[0],
     summary: input.summary ?? null,
     notes: input.notes ?? null,
-    prepared_for_contact: input.prepared_for_contact ?? null,
-    prepared_for_meta: input.prepared_for_meta ?? null,
-    prepared_for_email: input.prepared_for_email ?? null,
+    services: [],
   }
   const { data, error } = await supabase.from('weekly_reports').insert(row).select().single()
   if (error) throw new Error(`insert weekly_reports failed: ${error.message}`)
@@ -1140,9 +1158,9 @@ async function createWeeklyReport(input) {
 async function findWeeklyReport(input) {
   const { data, error } = await supabase
     .from('weekly_reports')
-    .select('id, report_number, client_name_snapshot, period_start, period_end, status')
+    .select('id, report_number, customer_name, customer_company, client_name_snapshot, period_start, period_end, status, services')
     .or(
-      `report_number.ilike.%${input.query}%,client_name_snapshot.ilike.%${input.query}%`,
+      `report_number.ilike.%${input.query}%,customer_name.ilike.%${input.query}%,customer_company.ilike.%${input.query}%,client_name_snapshot.ilike.%${input.query}%`,
     )
     .order('created_at', { ascending: false })
     .limit(5)
@@ -1152,11 +1170,13 @@ async function findWeeklyReport(input) {
 
 async function updateWeeklyReport(input) {
   const { id, ...rest } = input
-  const patch = pickDefined(rest, [
+  const patch: any = pickDefined(rest, [
+    'customer_name', 'customer_company',
     'period_start', 'period_end', 'summary', 'notes',
-    'prepared_for_contact', 'prepared_for_meta', 'prepared_for_email', 'status',
+    'cover_image_url', 'status',
   ])
   if (Object.keys(patch).length === 0) return { warning: 'no fields to update' }
+  if (patch.customer_name) patch.client_name_snapshot = patch.customer_name
   const { data, error } = await supabase
     .from('weekly_reports').update(patch).eq('id', id).select().single()
   if (error) throw new Error(`update weekly_reports failed: ${error.message}`)
@@ -1171,74 +1191,85 @@ async function deleteWeeklyReport(input) {
   return { deleted: input.id }
 }
 
-async function addReportKpi(input) {
-  return appendJsonArray(input.report_id, 'kpis', {
-    label: input.label,
-    value: input.value,
-    delta_label: input.delta_label ?? null,
-    delta_direction: input.delta_direction ?? 'flat',
-  })
-}
-async function removeReportKpi(input) {
-  return removeJsonArrayAt(input.report_id, 'kpis', input.index)
-}
-
-async function addReportPlatform(input) {
-  return appendJsonArray(input.report_id, 'platforms', {
-    platform: input.platform,
-    dot_color: input.dot_color ?? null,
-    followers: input.followers ?? null,
-    delta_followers: input.delta_followers ?? null,
-    posts_count: input.posts_count ?? null,
-    reach: input.reach ?? null,
-    engagement_rate: input.engagement_rate ?? null,
-  })
-}
-async function removeReportPlatform(input) {
-  return removeJsonArrayAt(input.report_id, 'platforms', input.index)
+// ---- Service blocks -------------------------------------------------------
+function normalizeServiceFields(input: any, prev: any) {
+  const defaults = SERVICE_KIND_DEFAULTS[input.kind] ?? SERVICE_KIND_DEFAULTS.custom
+  const out: any = {
+    title: input.title ?? prev?.title ?? defaults.title,
+    icon: input.icon ?? prev?.icon ?? defaults.icon,
+    body: input.body ?? prev?.body ?? null,
+  }
+  if ('metrics' in input) {
+    out.metrics = (input.metrics ?? []).map((m: any) => ({ label: m.label, value: m.value }))
+  }
+  if ('items' in input) {
+    out.items = (input.items ?? []).map((i: any) => ({ title: i.title, detail: i.detail ?? null }))
+  }
+  if ('images' in input) {
+    out.images = (input.images ?? []).map((i: any) => ({ url: i.url, caption: i.caption ?? null }))
+  }
+  return out
 }
 
-async function addReportContent(input) {
-  return appendJsonArray(input.report_id, 'content_items', {
-    title: input.title,
-    platform: input.platform ?? null,
-    content_type: input.content_type ?? null,
-    campaign_label: input.campaign_label ?? null,
-    publish_date: input.publish_date ?? null,
-    media_url: input.media_url ?? null,
-    status: input.status ?? 'published',
-  })
-}
-async function removeReportContent(input) {
-  return removeJsonArrayAt(input.report_id, 'content_items', input.index)
-}
-
-async function addReportCampaign(input) {
-  return appendJsonArray(input.report_id, 'campaigns', {
-    name: input.name,
-    platform: input.platform ?? null,
-    objective: input.objective ?? null,
-    spend: input.spend ?? null,
-    currency: input.currency ?? 'SAR',
-    result: input.result ?? null,
-    status: input.status ?? 'live',
-  })
-}
-async function removeReportCampaign(input) {
-  return removeJsonArrayAt(input.report_id, 'campaigns', input.index)
+async function addReportService(input) {
+  const norm = normalizeServiceFields(input, null)
+  const block = {
+    id: newServiceId(),
+    kind: input.kind,
+    title: norm.title,
+    icon: norm.icon,
+    body: norm.body,
+    metrics: norm.metrics ?? [],
+    items: norm.items ?? [],
+    images: norm.images ?? [],
+  }
+  const { data: existing, error: fe } = await supabase
+    .from('weekly_reports').select('services').eq('id', input.report_id).single()
+  if (fe) throw new Error(`fetch report failed: ${fe.message}`)
+  const next = [...(Array.isArray(existing.services) ? existing.services : []), block]
+  const { error } = await supabase
+    .from('weekly_reports').update({ services: next }).eq('id', input.report_id)
+  if (error) throw new Error(`add service failed: ${error.message}`)
+  await revalidate(['/reports', `/reports/${input.report_id}`])
+  return { service_id: block.id, kind: block.kind, title: block.title }
 }
 
-async function addReportTask(input) {
-  const column = input.kind === 'plan' ? 'tasks_plan' : 'tasks_done'
-  return appendJsonArray(input.report_id, column, {
-    title: input.title,
-    owner: input.owner ?? null,
-    date_label: input.date_label ?? null,
-  })
+async function updateReportService(input) {
+  const { data: existing, error: fe } = await supabase
+    .from('weekly_reports').select('services').eq('id', input.report_id).single()
+  if (fe) throw new Error(`fetch report failed: ${fe.message}`)
+  const list = Array.isArray(existing.services) ? [...existing.services] : []
+  const idx = list.findIndex((s: any) => s.id === input.service_id)
+  if (idx < 0) throw new Error(`service ${input.service_id} not found in report`)
+  const norm = normalizeServiceFields(input, list[idx])
+  list[idx] = {
+    ...list[idx],
+    title: norm.title,
+    icon: norm.icon,
+    body: norm.body,
+    ...(norm.metrics !== undefined ? { metrics: norm.metrics } : {}),
+    ...(norm.items !== undefined ? { items: norm.items } : {}),
+    ...(norm.images !== undefined ? { images: norm.images } : {}),
+  }
+  const { error } = await supabase
+    .from('weekly_reports').update({ services: list }).eq('id', input.report_id)
+  if (error) throw new Error(`update service failed: ${error.message}`)
+  await revalidate(['/reports', `/reports/${input.report_id}`])
+  return { service_id: input.service_id, kind: list[idx].kind, title: list[idx].title }
 }
-async function removeReportTask(input) {
-  const column = input.kind === 'plan' ? 'tasks_plan' : 'tasks_done'
-  return removeJsonArrayAt(input.report_id, column, input.index)
+
+async function removeReportService(input) {
+  const { data: existing, error: fe } = await supabase
+    .from('weekly_reports').select('services').eq('id', input.report_id).single()
+  if (fe) throw new Error(`fetch report failed: ${fe.message}`)
+  const list = Array.isArray(existing.services)
+    ? existing.services.filter((s: any) => s.id !== input.service_id)
+    : []
+  const { error } = await supabase
+    .from('weekly_reports').update({ services: list }).eq('id', input.report_id)
+  if (error) throw new Error(`remove service failed: ${error.message}`)
+  await revalidate(['/reports', `/reports/${input.report_id}`])
+  return { removed: input.service_id }
 }
 
 async function uploadImage(input) {
@@ -1395,21 +1426,15 @@ const registry: Record<string, (input: any) => Promise<any>> = {
   // agency settings
   get_agency_settings: getAgencySettings,
   update_agency_settings: updateAgencySettings,
-  // weekly reports (no send_pdf — chat-agent runs on Hostinger, no puppeteer)
+  // weekly reports — service-block model (no send_pdf — chat-agent runs on
+  // Hostinger, no puppeteer)
   create_weekly_report: createWeeklyReport,
   find_weekly_report: findWeeklyReport,
   update_weekly_report: updateWeeklyReport,
   delete_weekly_report: deleteWeeklyReport,
-  add_report_kpi: addReportKpi,
-  remove_report_kpi: removeReportKpi,
-  add_report_platform: addReportPlatform,
-  remove_report_platform: removeReportPlatform,
-  add_report_content: addReportContent,
-  remove_report_content: removeReportContent,
-  add_report_campaign: addReportCampaign,
-  remove_report_campaign: removeReportCampaign,
-  add_report_task: addReportTask,
-  remove_report_task: removeReportTask,
+  add_report_service: addReportService,
+  update_report_service: updateReportService,
+  remove_report_service: removeReportService,
   upload_image: uploadImage,
 }
 

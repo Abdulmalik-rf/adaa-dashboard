@@ -1,6 +1,8 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { supabaseClient } from '@/lib/supabase/client'
-import { FileBarChart2, ArrowUpRight, Calendar } from 'lucide-react'
+import { FileBarChart2, ArrowUpRight, Calendar, Plus } from 'lucide-react'
+import { createReport } from '@/app/actions/reports'
 
 export const revalidate = 0
 
@@ -38,7 +40,7 @@ export default async function ReportsPage({
   const { data: reports } = await (supabaseClient as any)
     .from('weekly_reports')
     .select(
-      'id, report_number, client_id, client_name_snapshot, period_start, period_end, issue_date, status, kpis, platforms, content_items, campaigns, tasks_done, tasks_plan, created_at',
+      'id, report_number, client_id, client_name_snapshot, customer_name, customer_company, period_start, period_end, issue_date, status, services, kpis, platforms, content_items, campaigns, tasks_done, tasks_plan, created_at',
     )
     .order('created_at', { ascending: false })
 
@@ -63,6 +65,21 @@ export default async function ReportsPage({
             {total} total · {draftCount} drafts · {sentCount} sent · {archivedCount} archived
           </p>
         </div>
+        <form
+          action={async () => {
+            'use server'
+            const fd = new FormData()
+            const r = await createReport(fd)
+            redirect(`/reports/${r.id}/edit`)
+          }}
+        >
+          <button
+            type="submit"
+            className="px-4 py-2 rounded-lg bg-[hsl(var(--primary))] text-white text-sm font-bold flex items-center gap-2 shadow-md shadow-[hsl(var(--primary)/0.2)]"
+          >
+            <Plus className="h-4 w-4" /> New Report
+          </button>
+        </form>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -131,18 +148,23 @@ export default async function ReportsPage({
                       No weekly reports {status && status !== 'all' ? `in "${status}"` : 'yet'}
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">
-                      Ask the agent: &quot;create a weekly report for TechNova&quot;
+                      Hit <strong>New Report</strong> above, or ask the agent: &quot;create a weekly report for TechNova&quot;.
                     </p>
                   </td>
                 </tr>
               )}
               {filtered.map((r: any) => {
-                const kpis = (r.kpis ?? []).length
-                const platforms = (r.platforms ?? []).length
-                const content = (r.content_items ?? []).length
-                const campaigns = (r.campaigns ?? []).length
-                const done = (r.tasks_done ?? []).length
-                const plan = (r.tasks_plan ?? []).length
+                const services = Array.isArray(r.services) ? r.services.length : 0
+                // Legacy section counts (only shown when the report has no
+                // service blocks yet — gives the user a hint to migrate).
+                const legacyTotal =
+                  (r.kpis ?? []).length +
+                  (r.platforms ?? []).length +
+                  (r.content_items ?? []).length +
+                  (r.campaigns ?? []).length +
+                  (r.tasks_done ?? []).length +
+                  (r.tasks_plan ?? []).length
+                const customer = r.customer_name || r.client_name_snapshot || '—'
                 return (
                   <tr
                     key={r.id}
@@ -154,7 +176,10 @@ export default async function ReportsPage({
                       </Link>
                     </td>
                     <td>
-                      <p className="font-semibold text-sm">{r.client_name_snapshot || '—'}</p>
+                      <p className="font-semibold text-sm">{customer}</p>
+                      {r.customer_company && (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))]">{r.customer_company}</p>
+                      )}
                     </td>
                     <td>
                       <div className="flex items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))]">
@@ -169,13 +194,17 @@ export default async function ReportsPage({
                     </td>
                     <td>
                       <div className="flex flex-wrap gap-1.5 text-[10px] font-bold uppercase tracking-wider">
-                        {kpis > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">KPI {kpis}</span>}
-                        {platforms > 0 && <span className="px-1.5 py-0.5 rounded bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400">Soc {platforms}</span>}
-                        {content > 0 && <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400">Posts {content}</span>}
-                        {campaigns > 0 && <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400">Camp {campaigns}</span>}
-                        {done > 0 && <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">Done {done}</span>}
-                        {plan > 0 && <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300">Plan {plan}</span>}
-                        {!(kpis || platforms || content || campaigns || done || plan) && (
+                        {services > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            {services} service{services === 1 ? '' : 's'}
+                          </span>
+                        )}
+                        {services === 0 && legacyTotal > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300">
+                            legacy ({legacyTotal})
+                          </span>
+                        )}
+                        {services === 0 && legacyTotal === 0 && (
                           <span className="text-[hsl(var(--muted-foreground))] italic">empty</span>
                         )}
                       </div>

@@ -100,10 +100,11 @@ Right now is ${now} in ${tz}. Use this to compute relative times/dates precisely
 - **Inbound images are auto-rehosted in Supabase Storage** and the public URL appears at the end of the user message as "[uploaded_image: https://...]". When the user wants the image used as a thumbnail, contract file, or content media, paste that URL into the relevant tool's media_url / file_path field — DON'T call upload_image again.
 
 ## Weekly reports
-- "Make a weekly report for <client>" → create_weekly_report (period_start/end default to last Mon → today). Then incrementally fill it: add_report_kpi (up to 4), add_report_platform per channel, add_report_content per post, add_report_campaign per campaign, add_report_task with kind="done" or "plan".
-- After populating, call send_weekly_report_pdf(id) to deliver the PDF over WhatsApp.
-- "Add the following to the latest report …" → find_weekly_report most recent for that client, then append.
-- For images in content rows: if the user sent an image referenced as "[uploaded_image: …]", pass that URL as media_url. Or call upload_image with image_url=<external URL> if they linked something.
+- "Make a weekly report for <client>" → create_weekly_report (pass customer_name + customer_company; period_start/end default to last Mon → today). Then add_report_service once per service the user wants to cover: SEO, cold mailing, social media, paid promotions, content, branding, web — or kind="custom" for anything else.
+- Each add_report_service carries the whole block in one shot: body (narrative paragraph), metrics ([{label,value}]), items ([{title,detail}]), images ([{url,caption}]). If the user sent an image referenced as "[uploaded_image: …]", drop that URL straight into images[].url — no need to call upload_image again.
+- To change an existing block use update_report_service with service_id (returned from add_report_service / find_weekly_report).
+- After populating, call send_weekly_report_pdf(id) to deliver the PDF.
+- For complex edits (rename customer, reorder blocks, etc.) tell the user the dashboard URL: /reports/<id>/edit.
 
 ## Reminders — IMPORTANT
 - When creating a reminder, the agent will actually send the user a WhatsApp message at the due date + due_time.

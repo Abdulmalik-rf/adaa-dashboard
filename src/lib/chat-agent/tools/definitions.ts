@@ -1149,20 +1149,20 @@ const weeklyReportTools = [
     function: {
       name: 'create_weekly_report',
       description:
-        'Start a new weekly client report. Auto-generates report_number (WR-YYYY-Wnn). After creating, use add_report_kpi / add_report_platform / add_report_content / add_report_campaign / add_report_task to fill in sections.',
+        'Start a new weekly client report. Auto-generates report_number (WR-YYYY-Wnn). After creating, use add_report_service to append one block per service the user wants to report on.',
       parameters: {
         type: 'object',
         properties: {
+          customer_name: { type: 'string' },
+          customer_company: { type: 'string' },
           client_company_name: { type: 'string' },
           period_start: { type: 'string' },
           period_end: { type: 'string' },
           summary: { type: 'string' },
           notes: { type: 'string' },
-          prepared_for_contact: { type: 'string' },
-          prepared_for_meta: { type: 'string' },
-          prepared_for_email: { type: 'string' },
+          cover_image_url: { type: 'string' },
         },
-        required: ['client_company_name'],
+        required: [],
       },
     },
   },
@@ -1170,7 +1170,7 @@ const weeklyReportTools = [
     type: 'function',
     function: {
       name: 'find_weekly_report',
-      description: 'Search reports by report_number substring or client name.',
+      description: 'Search reports by report_number substring or customer name.',
       parameters: {
         type: 'object',
         properties: { query: { type: 'string' } },
@@ -1182,18 +1182,18 @@ const weeklyReportTools = [
     type: 'function',
     function: {
       name: 'update_weekly_report',
-      description: 'Edit cover/summary/notes/status of a report.',
+      description: 'Edit cover info / summary / notes / status of a report. For service blocks, use add_report_service / update_report_service / remove_report_service.',
       parameters: {
         type: 'object',
         properties: {
           id: { type: 'string' },
+          customer_name: { type: 'string' },
+          customer_company: { type: 'string' },
           period_start: { type: 'string' },
           period_end: { type: 'string' },
           summary: { type: 'string' },
           notes: { type: 'string' },
-          prepared_for_contact: { type: 'string' },
-          prepared_for_meta: { type: 'string' },
-          prepared_for_email: { type: 'string' },
+          cover_image_url: { type: 'string' },
           status: { type: 'string', enum: ['draft', 'sent', 'archived'] },
         },
         required: ['id'],
@@ -1215,164 +1215,103 @@ const weeklyReportTools = [
   {
     type: 'function',
     function: {
-      name: 'add_report_kpi',
-      description: 'Append a KPI card to the 4-card snapshot row.',
-      parameters: {
-        type: 'object',
-        properties: {
-          report_id: { type: 'string' },
-          label: { type: 'string' },
-          value: { type: 'string' },
-          delta_label: { type: 'string' },
-          delta_direction: { type: 'string', enum: ['up', 'down', 'flat'] },
-        },
-        required: ['report_id', 'label', 'value'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'remove_report_kpi',
-      description: 'Remove one KPI card by zero-based index.',
-      parameters: {
-        type: 'object',
-        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
-        required: ['report_id', 'index'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'add_report_platform',
-      description: 'Append a platform row to the Social Media Performance table.',
-      parameters: {
-        type: 'object',
-        properties: {
-          report_id: { type: 'string' },
-          platform: { type: 'string' },
-          dot_color: { type: 'string' },
-          followers: { type: 'number' },
-          delta_followers: { type: 'number' },
-          posts_count: { type: 'number' },
-          reach: { type: 'number' },
-          engagement_rate: { type: 'number' },
-        },
-        required: ['report_id', 'platform'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'remove_report_platform',
-      description: 'Remove one platform row by zero-based index.',
-      parameters: {
-        type: 'object',
-        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
-        required: ['report_id', 'index'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'add_report_content',
+      name: 'add_report_service',
       description:
-        'Append a content row. Pass media_url to embed a thumbnail — call upload_image first if you only have the file.',
+        'Append a service block (SEO, Cold Mailing, Social Media, Paid Promotions, Content, Branding, Web, or Custom). Pass body for narrative; metrics for KPI cards; items for a bulleted list; images for thumbnails.',
       parameters: {
         type: 'object',
         properties: {
           report_id: { type: 'string' },
+          kind: {
+            type: 'string',
+            enum: ['seo', 'cold_mail', 'social', 'paid_promo', 'content', 'branding', 'web', 'custom'],
+          },
           title: { type: 'string' },
-          platform: { type: 'string' },
-          content_type: { type: 'string' },
-          campaign_label: { type: 'string' },
-          publish_date: { type: 'string' },
-          media_url: { type: 'string' },
-          status: { type: 'string', enum: ['published', 'scheduled', 'draft', 'paused'] },
+          icon: { type: 'string' },
+          body: { type: 'string' },
+          metrics: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { label: { type: 'string' }, value: { type: 'string' } },
+              required: ['label', 'value'],
+            },
+          },
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { title: { type: 'string' }, detail: { type: 'string' } },
+              required: ['title'],
+            },
+          },
+          images: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { url: { type: 'string' }, caption: { type: 'string' } },
+              required: ['url'],
+            },
+          },
         },
-        required: ['report_id', 'title'],
+        required: ['report_id', 'kind'],
       },
     },
   },
   {
     type: 'function',
     function: {
-      name: 'remove_report_content',
-      description: 'Remove one content row by zero-based index.',
-      parameters: {
-        type: 'object',
-        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
-        required: ['report_id', 'index'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'add_report_campaign',
-      description: 'Append a campaign row.',
+      name: 'update_report_service',
+      description: 'Replace contents of a service block. Omitted fields keep their current values.',
       parameters: {
         type: 'object',
         properties: {
           report_id: { type: 'string' },
-          name: { type: 'string' },
-          platform: { type: 'string' },
-          objective: { type: 'string' },
-          spend: { type: 'number' },
-          currency: { type: 'string' },
-          result: { type: 'string' },
-          status: { type: 'string', enum: ['live', 'paused', 'ended'] },
-        },
-        required: ['report_id', 'name'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'remove_report_campaign',
-      description: 'Remove one campaign row by zero-based index.',
-      parameters: {
-        type: 'object',
-        properties: { report_id: { type: 'string' }, index: { type: 'number' } },
-        required: ['report_id', 'index'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'add_report_task',
-      description: 'Append a task to Tasks Completed (kind="done") or Next Week\'s Plan (kind="plan").',
-      parameters: {
-        type: 'object',
-        properties: {
-          report_id: { type: 'string' },
-          kind: { type: 'string', enum: ['done', 'plan'] },
+          service_id: { type: 'string' },
           title: { type: 'string' },
-          owner: { type: 'string' },
-          date_label: { type: 'string' },
+          icon: { type: 'string' },
+          body: { type: 'string' },
+          metrics: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { label: { type: 'string' }, value: { type: 'string' } },
+              required: ['label', 'value'],
+            },
+          },
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { title: { type: 'string' }, detail: { type: 'string' } },
+              required: ['title'],
+            },
+          },
+          images: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { url: { type: 'string' }, caption: { type: 'string' } },
+              required: ['url'],
+            },
+          },
         },
-        required: ['report_id', 'kind', 'title'],
+        required: ['report_id', 'service_id'],
       },
     },
   },
   {
     type: 'function',
     function: {
-      name: 'remove_report_task',
-      description: 'Remove a task by kind + zero-based index.',
+      name: 'remove_report_service',
+      description: 'Remove a service block from the report.',
       parameters: {
         type: 'object',
         properties: {
           report_id: { type: 'string' },
-          kind: { type: 'string', enum: ['done', 'plan'] },
-          index: { type: 'number' },
+          service_id: { type: 'string' },
         },
-        required: ['report_id', 'kind', 'index'],
+        required: ['report_id', 'service_id'],
       },
     },
   },
@@ -1381,7 +1320,7 @@ const weeklyReportTools = [
     function: {
       name: 'upload_image',
       description:
-        'Upload an image to the report-images bucket and return its public URL. Pass either a remote `image_url` OR base64 `image_data` with `mime`.',
+        'Upload an image to the report-images bucket and return its public URL. Pass either a remote image_url OR base64 image_data with mime.',
       parameters: {
         type: 'object',
         properties: {

@@ -87,10 +87,12 @@ Right now is ${now} in ${tz}. Resolve relative dates/times ("tomorrow", "in 20 m
 - PDF export is only available through the WhatsApp agent (puppeteer not available here). Tell the user they can generate the PDF via WhatsApp if they ask.
 
 ## Weekly reports
-- "Make a weekly report for X" → create_weekly_report (period defaults to last Mon → today). Then incrementally fill: add_report_kpi (up to 4), add_report_platform per channel, add_report_content per post, add_report_campaign per campaign, add_report_task with kind="done" or "plan".
-- For images on content rows: call upload_image({ image_url }) to re-host an external image and use the returned public_url as media_url. Direct file uploads aren't possible from this chat — the user has to attach via WhatsApp instead.
+- "Make a weekly report for X" → create_weekly_report (pass customer_name, customer_company; period defaults to last Mon → today). Then add_report_service once per service the user wants to cover: SEO, cold mailing, social media, paid promotions, content, branding, web — or kind="custom" for anything else.
+- Each add_report_service can carry the whole block in one shot: body (narrative), metrics (KPI cards), items (bulleted list), images (URLs). Use upload_image({ image_url }) first to re-host external images.
+- To edit an existing block, call update_report_service with the service_id.
+- For full editing (rename customer, drag images, etc.) point the user at /reports/<id>/edit — there's a UI form there.
 - Reply with report number + link: "WR-2026-W17 ready ✓ — /reports/<id>".
-- PDF export of reports is also WhatsApp-only.
+- PDF export of reports is WhatsApp-only.
 
 ## Notes on clients
 - "Note for X: …" → add_client_note (appends with date). Never use update_client({ notes }) for appending — that overwrites.

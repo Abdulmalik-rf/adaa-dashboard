@@ -25,13 +25,16 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
     <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-900 dark:to-slate-800 p-4">
       <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="px-8 pt-10 pb-6 text-center">
-          <div className="mx-auto h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xl font-bold shadow-lg">
-            A
-          </div>
-          <h1 className="mt-5 text-2xl font-bold text-slate-900 dark:text-white">
-            AgencyOS
-          </h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/emergize-logo.png"
+            alt="Emergize"
+            className="mx-auto h-14 w-auto object-contain dark:invert"
+          />
+          <p className="mt-4 text-xs tracking-[0.2em] uppercase font-semibold text-lime-600 dark:text-lime-400">
+            Emerge to Dominate
+          </p>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
             {mode === 'signin' ? 'Sign in to your account' : 'Create a new account'}
           </p>
         </div>
@@ -78,7 +81,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
                   type="text"
                   name="full_name"
                   placeholder="Jane Doe"
-                  className="w-full h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-lime-500"
                 />
               </div>
             )}
@@ -93,7 +96,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
                 required
                 autoComplete="email"
                 placeholder="you@example.com"
-                className="w-full h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-lime-500"
               />
             </div>
 
@@ -108,7 +111,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
                 autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
                 minLength={mode === 'signup' ? 8 : undefined}
                 placeholder="••••••••"
-                className="w-full h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-lime-500"
               />
             </div>
 
@@ -121,7 +124,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
             <button
               type="submit"
               disabled={isPending}
-              className="w-full h-10 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-semibold shadow hover:shadow-md transition disabled:opacity-60"
+              className="w-full h-10 rounded-lg bg-gradient-to-r from-lime-400 to-zinc-900 text-zinc-900 text-sm font-semibold shadow hover:shadow-md transition disabled:opacity-60"
             >
               {isPending ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
             </button>

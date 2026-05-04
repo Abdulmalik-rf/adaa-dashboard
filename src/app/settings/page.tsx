@@ -77,7 +77,7 @@ export default async function SettingsPage() {
                   type="text"
                   name="agency_name"
                   defaultValue={settings.agency_name ?? ''}
-                  placeholder="Adaa Agency"
+                  placeholder="Emergize Agency"
                   className="h-9 w-full rounded-md border border-gray-200 bg-transparent px-3 py-1 text-sm shadow-sm dark:border-gray-800"
                 />
               </div>
@@ -87,7 +87,7 @@ export default async function SettingsPage() {
                   type="email"
                   name="support_email"
                   defaultValue={settings.support_email ?? ''}
-                  placeholder="support@adaa.sa"
+                  placeholder="support@emergize.sa"
                   className="h-9 w-full rounded-md border border-gray-200 bg-transparent px-3 py-1 text-sm shadow-sm dark:border-gray-800"
                 />
               </div>

@@ -257,7 +257,7 @@ export function Header({
             onClick={() => setUserOpen(!userOpen)}
             className="flex items-center gap-2 hover:opacity-80 transition"
           >
-            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-purple-600 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-zinc-900 flex items-center justify-center text-zinc-900 text-xs font-bold shadow-sm">
               {initials}
             </div>
             <div className="hidden sm:block text-right">

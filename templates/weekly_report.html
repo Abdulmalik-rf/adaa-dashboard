@@ -6,8 +6,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 <style>
 /* =====================================================================
-   Weekly Report template — matches the Adaa quotation aesthetic.
-   Navy (#0a1628) + Gold (#c8a45e) palette, Playfair display headings,
+   Weekly Report template — matches the Emergize quotation aesthetic.
+   Black (#0a0a0a) + Lime (#9DCD3D) palette, Playfair display headings,
    Inter body copy. Designed for A4 print and for being rendered to PDF
    via puppeteer (same approach as the quotation generator).
    ===================================================================== */
@@ -40,7 +40,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
 
 /* ----- Header (navy + gold) ------------------------------------------ */
 .r-header {
-  background: linear-gradient(135deg, #0a1628 0%, #132040 60%, #1a3060 100%);
+  background: linear-gradient(135deg, #0a0a0a 0%, #132040 60%, #1a3060 100%);
   padding: 40px 50px 35px;
   position: relative;
   overflow: hidden;
@@ -52,7 +52,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #c8a45e, #e4c77b, #c8a45e);
+  background: linear-gradient(90deg, #9DCD3D, #e4c77b, #9DCD3D);
 }
 .r-header-content {
   display: flex;
@@ -75,7 +75,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   font-family: 'Playfair Display', serif;
   font-size: 28px;
   font-weight: 700;
-  color: #0a1628;
+  color: #0a0a0a;
 }
 .r-brand-name {
   font-family: 'Playfair Display', serif;
@@ -86,7 +86,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
 }
 .r-brand-tagline {
   font-size: 11px;
-  color: #c8a45e;
+  color: #9DCD3D;
   letter-spacing: 3px;
   text-transform: uppercase;
   font-weight: 500;
@@ -97,7 +97,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   font-family: 'Playfair Display', serif;
   font-size: 36px;
   font-weight: 700;
-  color: #c8a45e;
+  color: #9DCD3D;
   letter-spacing: 2px;
   text-align: right;
 }
@@ -134,7 +134,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
 .r-info-value {
   font-size: 14px;
   font-weight: 600;
-  color: #0a1628;
+  color: #0a0a0a;
 }
 
 /* ----- Body container ------------------------------------------------ */
@@ -171,12 +171,12 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   padding: 4px 14px;
   border-radius: 20px;
 }
-.r-party.from .r-party-badge { background: #0a1628; color: #c8a45e; }
-.r-party.to .r-party-badge { background: #c8a45e; color: #0a1628; }
+.r-party.from .r-party-badge { background: #0a0a0a; color: #9DCD3D; }
+.r-party.to .r-party-badge { background: #9DCD3D; color: #0a0a0a; }
 .r-party-name {
   font-size: 16px;
   font-weight: 700;
-  color: #0a1628;
+  color: #0a0a0a;
   margin: 6px 0 10px;
 }
 .r-party-detail {
@@ -191,7 +191,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   font-weight: 700;
   letter-spacing: 2.5px;
   text-transform: uppercase;
-  color: #0a1628;
+  color: #0a0a0a;
   margin-bottom: 14px;
   display: flex;
   align-items: center;
@@ -214,7 +214,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
 .r-summary-box {
   background: linear-gradient(135deg, rgba(200, 164, 94, .04), rgba(200, 164, 94, .08));
   border: 1px solid rgba(200, 164, 94, .2);
-  border-left: 4px solid #c8a45e;
+  border-left: 4px solid #9DCD3D;
   border-radius: 10px;
   padding: 20px 24px;
   margin-bottom: 30px;
@@ -247,7 +247,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #c8a45e, #e4c77b);
+  background: linear-gradient(90deg, #9DCD3D, #e4c77b);
 }
 .r-kpi-label {
   font-size: 9px;
@@ -260,7 +260,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
 .r-kpi-value {
   font-size: 24px;
   font-weight: 800;
-  color: #0a1628;
+  color: #0a0a0a;
   line-height: 1.1;
   font-family: 'Playfair Display', serif;
 }
@@ -275,7 +275,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
 
 /* ----- Tables -------------------------------------------------------- */
 .r-table-bar {
-  background: linear-gradient(135deg, #0a1628, #132040);
+  background: linear-gradient(135deg, #0a0a0a, #132040);
   padding: 12px 24px;
   border-radius: 10px 10px 0 0;
   display: flex;
@@ -285,7 +285,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
 .r-table-bar h3 {
   font-size: 12px;
   font-weight: 600;
-  color: #c8a45e;
+  color: #9DCD3D;
   letter-spacing: 2px;
   text-transform: uppercase;
 }
@@ -326,13 +326,13 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  color: #0a1628;
+  color: #0a0a0a;
 }
 .r-platform-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #c8a45e;
+  background: #9DCD3D;
 }
 .r-pill {
   display: inline-block;
@@ -363,7 +363,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   font-size: 16px;
   color: #9aa5b8;
 }
-.r-content-title { font-weight: 600; color: #0a1628; margin-bottom: 3px; }
+.r-content-title { font-weight: 600; color: #0a0a0a; margin-bottom: 3px; }
 .r-content-meta { font-size: 11px; color: #9aa5b8; }
 
 /* ----- Task / plan list rows ----------------------------------------- */
@@ -381,7 +381,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   height: 22px;
   min-width: 22px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #c8a45e, #a6863a);
+  background: linear-gradient(135deg, #9DCD3D, #a6863a);
   color: #fff;
   display: flex;
   align-items: center;
@@ -393,14 +393,14 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
 .r-list-marker.done { background: linear-gradient(135deg, #16a34a, #15803d); }
 .r-list-marker.plan {
   background: transparent;
-  color: #c8a45e;
-  border: 1.5px dashed #c8a45e;
+  color: #9DCD3D;
+  border: 1.5px dashed #9DCD3D;
 }
 .r-list-body { flex: 1; }
 .r-list-title {
   font-size: 13px;
   font-weight: 600;
-  color: #0a1628;
+  color: #0a0a0a;
   margin-bottom: 2px;
 }
 .r-list-meta {
@@ -433,7 +433,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
 
 /* ----- Footer (matches header) -------------------------------------- */
 .r-footer {
-  background: linear-gradient(135deg, #0a1628, #132040);
+  background: linear-gradient(135deg, #0a0a0a, #132040);
   padding: 22px 50px;
   position: relative;
   margin-top: auto;
@@ -445,7 +445,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #c8a45e, #e4c77b, #c8a45e);
+  background: linear-gradient(90deg, #9DCD3D, #e4c77b, #9DCD3D);
 }
 .r-footer-content {
   display: flex;
@@ -490,15 +490,15 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
      PAGE 1 — Cover, parties, executive summary, KPI snapshot, social
      ==================================================================== -->
 <div class="r-page">
-  <div class="r-watermark">Adaa</div>
+  <div class="r-watermark">Emergize</div>
 
   <!-- Header -->
   <div class="r-header">
     <div class="r-header-content">
       <div>
         <div class="r-brand-logo">
-          <div class="r-logo-icon">A</div>
-          <div class="r-brand-name">Adaa</div>
+          <div class="r-logo-icon">E</div>
+          <div class="r-brand-name">Emergize</div>
         </div>
         <div class="r-brand-tagline">Advertisement &amp; Digital Solutions</div>
       </div>
@@ -531,7 +531,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
     <div class="r-parties">
       <div class="r-party from">
         <div class="r-party-badge">Prepared by</div>
-        <div class="r-party-name">Adaa Agency</div>
+        <div class="r-party-name">Emergize Agency</div>
         <div class="r-party-detail">
           📍 Saudi Arabia — Khobar<br>
           📞 +966 577 602 467<br>
@@ -656,7 +656,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
      PAGE 2 — Content delivered, campaigns, tasks done, plan, notes
      ==================================================================== -->
 <div class="r-page">
-  <div class="r-watermark">Adaa</div>
+  <div class="r-watermark">Emergize</div>
 
   <div class="r-body" style="padding-top:50px">
 
@@ -873,7 +873,7 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #2d3748; }
             <div class="r-list-marker plan">→</div>
             <div class="r-list-body">
               <div class="r-list-title">Q2 strategy review call</div>
-              <div class="r-list-meta">Due: May 2 · Owner: Adaa team</div>
+              <div class="r-list-meta">Due: May 2 · Owner: Emergize team</div>
             </div>
           </div>
         </div>

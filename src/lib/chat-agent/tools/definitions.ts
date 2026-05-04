@@ -813,7 +813,7 @@ const quotationTools = [
     function: {
       name: 'create_quotation',
       description:
-        'Create a new quotation (price estimate document). Auto-generates the quote number (Q-YYYY-NNN). Only client-facing fields are required — company info (Adaa VAT/CR/address/phone/email) and payment terms default to Adaa\'s standard values. After creating, you MUST call add_quotation_item for each line item the user mentioned.',
+        'Create a new quotation (price estimate document). Auto-generates the quote number (Q-YYYY-NNN). Only client-facing fields are required — company info (Emergize VAT/CR/address/phone/email) and payment terms default to Emergize\'s standard values. After creating, you MUST call add_quotation_item for each line item the user mentioned.',
       parameters: {
         type: 'object',
         properties: {

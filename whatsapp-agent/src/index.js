@@ -105,7 +105,7 @@ async function start() {
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: false,
-    browser: ['Adaa Agent', 'Chrome', '1.0.0'],
+    browser: ['Emergize Agent', 'Chrome', '1.0.0'],
     version,
     syncFullHistory: false,
   })

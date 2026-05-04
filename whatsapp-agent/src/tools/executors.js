@@ -1389,17 +1389,28 @@ async function sendWeeklyReportPdf(input) {
   if (error) throw new Error(`fetch report failed: ${error.message}`)
   if (!report) throw new Error(`weekly_reports ${input.id} not found`)
 
-  const { generateWeeklyReportPdf } = await import('../weekly-report-pdf.js')
-  const pdf = await generateWeeklyReportPdf(report)
-  const { sock, userJid } = getSock()
+  let pdf
+  try {
+    const { generateWeeklyReportPdf } = await import('../weekly-report-pdf.js')
+    pdf = await generateWeeklyReportPdf(report)
+  } catch (err) {
+    console.error('[send_weekly_report_pdf] render failed for', input.id, ':', err?.message ?? err)
+    throw new Error(`PDF render failed: ${err?.message ?? err}`)
+  }
 
+  const { sock, userJid } = getSock()
   const fileName = `${report.report_number}.pdf`
-  await sock.sendMessage(userJid, {
-    document: pdf,
-    mimetype: 'application/pdf',
-    fileName,
-    caption: `${report.report_number} — ${report.client_name_snapshot ?? 'weekly report'}`,
-  })
+  try {
+    await sock.sendMessage(userJid, {
+      document: pdf,
+      mimetype: 'application/pdf',
+      fileName,
+      caption: `${report.report_number} — ${report.client_name_snapshot ?? 'weekly report'}`,
+    })
+  } catch (err) {
+    console.error('[send_weekly_report_pdf] WhatsApp send failed for', input.id, ':', err?.message ?? err)
+    throw new Error(`WhatsApp send failed: ${err?.message ?? err}`)
+  }
 
   return { sent: true, report_number: report.report_number, bytes: pdf.length, fileName }
 }

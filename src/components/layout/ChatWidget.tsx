@@ -10,7 +10,7 @@ import { Sparkles, X, Send, Loader2, Trash2 } from 'lucide-react'
 
 type Turn = { role: 'user' | 'assistant'; text: string; id: string }
 
-const STORAGE_KEY = 'adaa-chat-history-v1'
+const STORAGE_KEY = 'emergize-chat-history-v1'
 const MAX_STORED_TURNS = 30
 
 function uid() {
@@ -107,7 +107,7 @@ export function ChatWidget() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-purple-600 shadow-xl shadow-[hsl(var(--primary)/0.35)] flex items-center justify-center text-white hover:scale-105 transition-transform"
+          className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-zinc-900 shadow-xl shadow-[hsl(var(--primary)/0.35)] flex items-center justify-center text-zinc-900 hover:scale-105 transition-transform"
           aria-label="Open agent chat"
           title="Agent chat"
         >
@@ -120,11 +120,11 @@ export function ChatWidget() {
         <div className="fixed bottom-6 right-6 z-40 w-[380px] max-w-[calc(100vw-24px)] h-[560px] max-h-[calc(100vh-40px)] rounded-2xl bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-2xl flex flex-col overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-[hsl(var(--border))] bg-gradient-to-r from-[hsl(var(--primary)/0.08)] to-transparent">
-            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-purple-600 flex items-center justify-center">
-              <Sparkles className="h-4 w-4 text-white" />
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-zinc-900 flex items-center justify-center">
+              <Sparkles className="h-4 w-4 text-zinc-900" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm">Adaa Agent</p>
+              <p className="font-bold text-sm">Emergize Agent</p>
               <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
                 Ask me to add clients, set reminders, draft quotations…
               </p>

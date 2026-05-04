@@ -11,8 +11,8 @@ import { LanguageProvider } from '@/lib/i18n/LanguageContext'
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
 export const metadata: Metadata = {
-  title: 'AgencyOS – CRM & Operations Platform',
-  description: 'Production-grade agency CRM and operations management dashboard',
+  title: 'Emergize – CRM & Operations Platform',
+  description: 'Emergize agency CRM and operations management dashboard — Emerge to Dominate',
 }
 
 export const revalidate = 0
@@ -56,7 +56,7 @@ export default async function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@300;400;500;600;700;800&family=Lilita+One&display=swap" rel="stylesheet" />
       </head>
       <body className={`${inter.variable} h-full antialiased`} style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
         <LanguageProvider>

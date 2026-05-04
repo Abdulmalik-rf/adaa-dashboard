@@ -2,7 +2,7 @@
 --   quotations       — header (client, dates, terms, totals)
 --   quotation_items  — line items (name, price, qty or % of profit)
 --
--- Company defaults (Adaa VAT/CR/address) are column defaults so the WhatsApp
+-- Company defaults (Emergize VAT/CR/address) are column defaults so the WhatsApp
 -- agent can create a quotation with zero arguments and it still renders a
 -- complete document.
 
@@ -21,9 +21,9 @@ CREATE TABLE IF NOT EXISTS public.quotations (
     client_vat TEXT,
     client_cr TEXT,
 
-    -- Company (seller) info — editable per quote but with Adaa defaults.
-    company_name TEXT DEFAULT 'Adaa',
-    company_tagline TEXT DEFAULT 'Advertisement & Digital Solutions',
+    -- Company (seller) info — editable per quote but with Emergize defaults.
+    company_name TEXT DEFAULT 'Emergize',
+    company_tagline TEXT DEFAULT 'Emerge to Dominate',
     company_phone TEXT DEFAULT '+966 577 602 467',
     company_address TEXT DEFAULT 'Saudi Arabia — Khobar',
     company_email TEXT DEFAULT 'abdulmalikalrifaee@outlook.com',

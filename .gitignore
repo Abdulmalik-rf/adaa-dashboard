@@ -30,6 +30,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# dev server logs (root-level next-dev-*.log) and agent stdout
+next-dev-*.log
+next-dev-*.err.log
+whatsapp-agent/agent.log
+whatsapp-agent/agent.log.old
+
 # env files (can opt-in for committing if needed)
 .env*
 !.env.production

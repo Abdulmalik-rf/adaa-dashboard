@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import Image from 'next/image'
 import {
   LayoutDashboard, Users, FileText, Bell, Folder, Settings,
-  TrendingUp, CheckSquare, Menu, X,
+  CheckSquare, Menu, X,
   BarChart3, MessageSquare, Sparkles, FileBarChart2
 } from 'lucide-react'
 import { useState } from 'react'
@@ -44,12 +45,14 @@ export function Sidebar() {
     <div className={`flex h-full flex-col bg-[hsl(var(--card))] border-${dir === 'rtl' ? 'l' : 'r'} border-[hsl(var(--border))] w-64`}>
       {/* Logo */}
       <div className="flex h-16 items-center px-6 border-b border-[hsl(var(--border))] flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-xl bg-[hsl(var(--primary))] flex items-center justify-center shadow-md shadow-[hsl(var(--primary))/0.3]">
-            <TrendingUp className="h-4 w-4 text-white" />
-          </div>
-          <span className="text-lg font-bold tracking-tight gradient-text">AgencyOS</span>
-        </div>
+        <Image
+          src="/emergize-logo.png"
+          alt="Emergize"
+          width={140}
+          height={32}
+          priority
+          className="h-8 w-auto object-contain dark:invert"
+        />
       </div>
 
       {/* Nav */}
@@ -93,7 +96,7 @@ export function Sidebar() {
       {/* User footer */}
       <div className="border-t border-[hsl(var(--border))] p-4 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-purple-600 flex items-center justify-center text-white text-xs font-bold shadow-md">
+          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-zinc-900 flex items-center justify-center text-zinc-900 text-xs font-bold shadow-md">
             FA
           </div>
           <div className="flex-1 min-w-0">

@@ -1547,10 +1547,263 @@ const registry = {
   remove_report_service: removeReportService,
   upload_image: uploadImage,
   send_weekly_report_pdf: sendWeeklyReportPdf,
+  // power tools
+  db_describe: dbDescribe,
+  db_select: dbSelect,
+  db_insert: dbInsert,
+  db_update: dbUpdate,
+  db_delete: dbDelete,
+  db_count: dbCount,
+  db_query: dbQuery,
+  db_migrate: dbMigrate,
+  run_code: runCode,
 }
 
+// =============================================================================
+// POWER TOOLS — generic DB access + sandboxed JS execution
+// =============================================================================
+
+const POWER_TOOL_NAMES = new Set([
+  'db_describe', 'db_select', 'db_insert', 'db_update', 'db_delete',
+  'db_count', 'db_query', 'db_migrate', 'run_code',
+])
+
+// Audit every power-tool call so there's a paper trail. Best-effort —
+// if the audit insert fails (e.g. the agent_audit table doesn't exist
+// yet because the migration hasn't been run), we don't fail the tool.
+async function audit(tool, payload, result, error) {
+  try {
+    const ctx = getRequest()
+    await supabase.from('agent_audit').insert({
+      sender: ctx?.sender ?? null,
+      tool,
+      payload: payload ?? null,
+      result: error ? null : result ?? null,
+      error: error ? String(error?.message ?? error) : null,
+    })
+  } catch (_) { /* swallow */ }
+}
+
+// Translate the tool's filter array [{column, op, value}, ...] into
+// chained supabase-js where clauses on the given query builder.
+function applyFilters(q, filters) {
+  for (const f of (filters || [])) {
+    const op = f.op || 'eq'
+    if (typeof q[op] !== 'function') {
+      throw new Error(`unsupported filter op: ${op}`)
+    }
+    q = q[op](f.column, f.value)
+  }
+  return q
+}
+
+async function dbDescribe() {
+  // information_schema.columns through agent_query — gives us a live
+  // schema dump regardless of which migrations are applied.
+  const { data, error } = await supabase.rpc('agent_query', {
+    sql: `
+      SELECT
+        c.table_name,
+        c.column_name,
+        c.data_type,
+        c.is_nullable,
+        c.column_default
+      FROM information_schema.columns c
+      JOIN information_schema.tables t
+        ON t.table_name = c.table_name AND t.table_schema = c.table_schema
+      WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+      ORDER BY c.table_name, c.ordinal_position
+    `,
+  })
+  if (error) throw new Error(`db_describe failed: ${error.message}`)
+  if (data?.error) throw new Error(`db_describe SQL error: ${data.error}`)
+  const tables = {}
+  for (const row of (data || [])) {
+    if (!tables[row.table_name]) tables[row.table_name] = []
+    tables[row.table_name].push({
+      column: row.column_name,
+      type: row.data_type,
+      nullable: row.is_nullable === 'YES',
+      default: row.column_default,
+    })
+  }
+  return { tables, table_count: Object.keys(tables).length }
+}
+
+async function dbSelect(input) {
+  let q = supabase.from(input.table).select(input.columns || '*')
+  q = applyFilters(q, input.filters)
+  if (input.order_by) {
+    q = q.order(input.order_by, { ascending: input.ascending !== false })
+  }
+  if (input.limit) q = q.limit(input.limit)
+  const { data, error } = await q
+  if (error) throw new Error(`db_select failed: ${error.message}`)
+  return { rows: data ?? [], count: (data ?? []).length }
+}
+
+async function dbInsert(input) {
+  const { data, error } = await supabase
+    .from(input.table)
+    .insert(input.data)
+    .select()
+  if (error) throw new Error(`db_insert failed: ${error.message}`)
+  await revalidate(['/'])
+  return { inserted: data ?? [], count: (data ?? []).length }
+}
+
+async function dbUpdate(input) {
+  let q = supabase.from(input.table).update(input.patch)
+  q = applyFilters(q, input.filters)
+  const { data, error } = await q.select()
+  if (error) throw new Error(`db_update failed: ${error.message}`)
+  await revalidate(['/'])
+  return { updated: data ?? [], count: (data ?? []).length }
+}
+
+async function dbDelete(input) {
+  let q = supabase.from(input.table).delete()
+  q = applyFilters(q, input.filters)
+  const { data, error } = await q.select()
+  if (error) throw new Error(`db_delete failed: ${error.message}`)
+  await revalidate(['/'])
+  return { deleted: data ?? [], count: (data ?? []).length }
+}
+
+async function dbCount(input) {
+  let q = supabase.from(input.table).select('*', { count: 'exact', head: true })
+  q = applyFilters(q, input.filters)
+  const { count, error } = await q
+  if (error) throw new Error(`db_count failed: ${error.message}`)
+  return { count: count ?? 0 }
+}
+
+async function dbQuery(input) {
+  if (!input.sql || typeof input.sql !== 'string') {
+    throw new Error('db_query: sql is required')
+  }
+  // Light client-side guard — the SQL is wrapped inside a SELECT in the
+  // RPC, but reject obvious DDL/DML mistakes early so the user gets a
+  // clear error rather than a confusing "syntax error at..." from
+  // postgres.
+  const lower = input.sql.trim().toLowerCase()
+  if (/^(insert|update|delete|drop|alter|create|truncate|grant|revoke)\b/.test(lower)) {
+    throw new Error('db_query is read-only. Use db_migrate for DDL/DML.')
+  }
+  const { data, error } = await supabase.rpc('agent_query', { sql: input.sql })
+  if (error) throw new Error(`db_query failed: ${error.message}`)
+  if (data?.error) throw new Error(`db_query SQL error: ${data.error} (${data.sqlstate})`)
+  const rows = Array.isArray(data) ? data : []
+  return { rows, count: rows.length }
+}
+
+async function dbMigrate(input) {
+  if (!input.sql || typeof input.sql !== 'string') {
+    throw new Error('db_migrate: sql is required')
+  }
+  const { data, error } = await supabase.rpc('agent_migrate', { sql: input.sql })
+  if (error) throw new Error(`db_migrate failed: ${error.message}`)
+  if (data?.error) throw new Error(`db_migrate SQL error: ${data.error} (${data.sqlstate})`)
+  await revalidate(['/'])
+  return { ok: true, sql: input.sql }
+}
+
+// run_code: execute JS in a Node vm sandbox with the supabase client
+// + fetch + console pre-injected. Async wrapping handled internally so
+// the agent can write either a top-level expression or
+// `(async () => { ... })()` at its discretion. 30s wall-clock cap.
+async function runCode(input) {
+  if (!input.code || typeof input.code !== 'string') {
+    throw new Error('run_code: code is required')
+  }
+  const vm = await import('node:vm')
+
+  const logs = []
+  const sandboxConsole = {
+    log: (...args) => logs.push(args.map(formatArg).join(' ')),
+    error: (...args) => logs.push('[error] ' + args.map(formatArg).join(' ')),
+    warn: (...args) => logs.push('[warn] ' + args.map(formatArg).join(' ')),
+  }
+
+  const context = vm.createContext({
+    supabase,
+    fetch: globalThis.fetch,
+    Buffer,
+    console: sandboxConsole,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    URL,
+    URLSearchParams,
+  })
+
+  // Wrap the agent's code in an async IIFE so it can await freely and
+  // we always receive a Promise.
+  const wrapped = `(async () => {\n${input.code}\n})()`
+  let result, errored
+  try {
+    const promise = vm.runInContext(wrapped, context, { filename: 'agent-snippet.js' })
+    // Race against a 30s timeout so a hung await doesn't hang the agent.
+    result = await Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('run_code timed out after 30s')), 30000),
+      ),
+    ])
+  } catch (err) {
+    errored = err
+  }
+
+  if (errored) {
+    return { ok: false, error: String(errored?.message ?? errored), logs }
+  }
+  // Coerce the return value to a JSON-safe shape so downstream tool
+  // serialisation doesn't choke on things like Date or undefined.
+  return { ok: true, result: jsonSafe(result), logs }
+}
+
+function formatArg(a) {
+  if (typeof a === 'string') return a
+  try { return JSON.stringify(a) } catch { return String(a) }
+}
+
+function jsonSafe(value, depth = 0) {
+  if (depth > 10) return '[depth-limit]'
+  if (value === null || value === undefined) return value ?? null
+  const t = typeof value
+  if (t === 'string' || t === 'number' || t === 'boolean') return value
+  if (t === 'bigint') return value.toString()
+  if (value instanceof Date) return value.toISOString()
+  if (value instanceof Error) return { message: value.message, stack: value.stack }
+  if (Array.isArray(value)) return value.slice(0, 200).map((v) => jsonSafe(v, depth + 1))
+  if (Buffer.isBuffer(value)) return `[Buffer ${value.length}b]`
+  if (t === 'object') {
+    const out = {}
+    for (const [k, v] of Object.entries(value).slice(0, 100)) {
+      out[k] = jsonSafe(v, depth + 1)
+    }
+    return out
+  }
+  return String(value)
+}
+
+// Override runTool below to wrap power-tool calls with audit logging.
+const _origRegistry = registry
+
 export async function runTool(name, input) {
-  const fn = registry[name]
+  const fn = _origRegistry[name]
   if (!fn) throw new Error(`unknown tool: ${name}`)
-  return await fn(input)
+  if (!POWER_TOOL_NAMES.has(name)) {
+    return await fn(input)
+  }
+  // Power-tool path — audit success and failure.
+  try {
+    const result = await fn(input)
+    audit(name, input, result, null).catch(() => {})
+    return result
+  } catch (err) {
+    audit(name, input, null, err).catch(() => {})
+    throw err
+  }
 }

@@ -1453,6 +1453,208 @@ const settingsTools = [
 ]
 
 // =============================================================================
+// POWER TOOLS — generic database access + code execution
+// =============================================================================
+// Tier-1: structured DB ops (db_select / insert / update / delete / count) +
+// raw SQL escape hatches (db_query for SELECT, db_migrate for DDL/DML).
+// Tier-2: run_code, a Node vm-sandboxed JS runner with the Supabase
+// service-role client pre-injected.
+//
+// Destructive ops (db_delete with broad filters, db_migrate of any kind,
+// run_code that mutates data) MUST be confirmed with the user in chat
+// before the agent calls them — see the "Power tools — confirmation
+// rules" section in the system prompt.
+
+const powerTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'db_describe',
+      description:
+        'Returns the live database schema (table names, columns, types, defaults) by querying information_schema. Use this BEFORE any other power tool when you don\'t already know the table/column you need.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_select',
+      description:
+        'Read rows from any public-schema table. Filters are an array of {column, op, value} where op is one of eq, neq, gt, gte, lt, lte, like, ilike, in, is. Use db_describe first if unsure of the table.',
+      parameters: {
+        type: 'object',
+        properties: {
+          table: { type: 'string', description: 'Table name (in public schema).' },
+          columns: { type: 'string', description: 'Comma-separated columns or "*". Default "*".' },
+          filters: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                column: { type: 'string' },
+                op: { type: 'string', enum: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'in', 'is'] },
+                value: {},
+              },
+              required: ['column', 'op', 'value'],
+            },
+          },
+          order_by: { type: 'string' },
+          ascending: { type: 'boolean', description: 'Default true.' },
+          limit: { type: 'number' },
+        },
+        required: ['table'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_insert',
+      description: 'Insert one or more rows into a public-schema table. Returns the inserted rows.',
+      parameters: {
+        type: 'object',
+        properties: {
+          table: { type: 'string' },
+          data: {
+            description: 'Single row object or array of row objects.',
+          },
+        },
+        required: ['table', 'data'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_update',
+      description: 'Update rows in a public-schema table matching the filters. Returns updated rows.',
+      parameters: {
+        type: 'object',
+        properties: {
+          table: { type: 'string' },
+          filters: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                column: { type: 'string' },
+                op: { type: 'string', enum: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'in', 'is'] },
+                value: {},
+              },
+              required: ['column', 'op', 'value'],
+            },
+          },
+          patch: { type: 'object', description: 'Fields to set, e.g. { status: "active" }.' },
+        },
+        required: ['table', 'filters', 'patch'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_delete',
+      description:
+        'Delete rows from a public-schema table matching the filters. DESTRUCTIVE — confirm with user first by summarising what will be removed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          table: { type: 'string' },
+          filters: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                column: { type: 'string' },
+                op: { type: 'string', enum: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'in', 'is'] },
+                value: {},
+              },
+              required: ['column', 'op', 'value'],
+            },
+          },
+        },
+        required: ['table', 'filters'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_count',
+      description: 'Count rows in a table matching optional filters.',
+      parameters: {
+        type: 'object',
+        properties: {
+          table: { type: 'string' },
+          filters: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                column: { type: 'string' },
+                op: { type: 'string', enum: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'in', 'is'] },
+                value: {},
+              },
+              required: ['column', 'op', 'value'],
+            },
+          },
+        },
+        required: ['table'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_query',
+      description:
+        'Run an arbitrary SELECT against the database for joins / aggregations / window functions / cross-table queries that don\'t fit db_select. Read-only. Returns an array of row objects. Wraps SQL through the agent_query RPC.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sql: { type: 'string', description: 'A single SELECT statement (no trailing semicolon needed).' },
+        },
+        required: ['sql'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_migrate',
+      description:
+        'Run arbitrary DDL or DML — ALTER TABLE, CREATE INDEX, CREATE TABLE, bulk INSERT/UPDATE/DELETE, etc. DESTRUCTIVE/SCHEMA-LEVEL — ALWAYS describe the change to the user and wait for explicit confirmation ("yes", "go", "do it") before calling. Wraps SQL through the agent_migrate RPC.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sql: { type: 'string', description: 'A single SQL statement (no trailing semicolon needed).' },
+        },
+        required: ['sql'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_code',
+      description:
+        'Execute JavaScript in a Node vm sandbox with these globals available: `supabase` (Supabase service-role client, exposes .from(), .rpc(), .auth.admin, .storage), `fetch`, `console.log/error`, `Buffer`. Code MUST be an async expression — wrap multi-step logic in (async () => { ... })() and the return value will be sent back. Capture intermediate output with console.log. 30-second timeout. Use this when a single SQL query / structured tool can\'t express the work (multi-step transformations, calls to external APIs, etc.). For data mutations, describe what the code will do and confirm with user first.',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description:
+              'JavaScript expression. Example: "const { data } = await supabase.from(\\"clients\\").select(\\"id, company_name\\"); return data.length;"',
+          },
+        },
+        required: ['code'],
+      },
+    },
+  },
+]
+
+// =============================================================================
 
 export const tools = [
   ...memoryTools,
@@ -1472,4 +1674,5 @@ export const tools = [
   ...clientFileTools,
   ...weeklyReportTools,
   ...settingsTools,
+  ...powerTools,
 ]

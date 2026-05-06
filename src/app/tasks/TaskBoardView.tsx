@@ -334,15 +334,17 @@ export function TaskBoardView({ tasks: initialTasks, teamMembers, clients }: Tas
                                <ChevronRight className={`h-4 w-4 ${dir === 'rtl' ? 'rotate-180' : ''}`} />
                              </button>
                            )}
-                           <button 
+                           <button
                              onClick={(e) => { e.stopPropagation(); setSelectedTask(task) }}
-                             className="h-8 w-8 rounded-lg bg-white dark:bg-slate-800 border border-[hsl(var(--border))] flex items-center justify-center hover:bg-[hsl(var(--muted))] transition-colors shadow-sm"
+                             className="h-8 w-8 rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all shadow-sm"
+                             title="Edit task"
                            >
                               <Edit3 className="h-3.5 w-3.5" />
                            </button>
-                           <button 
+                           <button
                              onClick={(e) => handleDeleteTask(e, task.id)}
-                             className="h-8 w-8 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                             className="h-8 w-8 rounded-lg bg-red-500/15 text-red-500 dark:text-red-400 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                             title="Delete task"
                            >
                               <Trash2 className="h-3.5 w-3.5" />
                            </button>

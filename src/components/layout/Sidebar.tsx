@@ -43,15 +43,16 @@ export function Sidebar() {
 
   const SidebarContent = () => (
     <div className={`flex h-full flex-col bg-[hsl(var(--card))] border-${dir === 'rtl' ? 'l' : 'r'} border-[hsl(var(--border))] w-64`}>
-      {/* Logo */}
-      <div className="flex h-16 items-center px-6 border-b border-[hsl(var(--border))] flex-shrink-0">
+      {/* Logo — taller header to fit the bigger wordmark + transparent
+          PNG so dark:invert no longer paints a black rectangle around it */}
+      <div className="flex h-24 items-center justify-center px-4 border-b border-[hsl(var(--border))] flex-shrink-0">
         <Image
           src="/emergize-logo.png"
           alt="Emergize"
-          width={140}
-          height={32}
+          width={400}
+          height={208}
           priority
-          className="h-8 w-auto object-contain dark:invert"
+          className="h-16 w-auto object-contain dark:invert"
         />
       </div>
 

@@ -43,18 +43,17 @@ export function Sidebar() {
 
   const SidebarContent = () => (
     <div className={`flex h-full flex-col bg-[hsl(var(--card))] border-${dir === 'rtl' ? 'l' : 'r'} border-[hsl(var(--border))] w-64`}>
-      {/* Logo — using the original "logo final.png" wordmark from the
-          project folder. dark:invert removed so the brand colours (black
-          wordmark + lime accent + EMERGE TO DOMINATE tagline) stay
-          intact in dark mode. */}
-      <div className="flex h-24 items-center justify-center px-4 border-b border-[hsl(var(--border))] flex-shrink-0 bg-white">
+      {/* Logo — bumped to ~h-28 in an h-36 header. This is roughly the
+          max size before the wordmark's natural aspect ratio (1.93:1)
+          pushes it past the 256px sidebar width. */}
+      <div className="flex h-36 items-center justify-center px-3 border-b border-[hsl(var(--border))] flex-shrink-0 bg-white">
         <Image
           src="/emergize-logo.png"
           alt="Emergize"
           width={400}
           height={208}
           priority
-          className="h-16 w-auto object-contain"
+          className="h-28 w-auto object-contain"
         />
       </div>
 

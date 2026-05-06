@@ -43,17 +43,17 @@ export function Sidebar() {
 
   const SidebarContent = () => (
     <div className={`flex h-full flex-col bg-[hsl(var(--card))] border-${dir === 'rtl' ? 'l' : 'r'} border-[hsl(var(--border))] w-64`}>
-      {/* Logo — bumped to ~h-28 in an h-36 header. This is roughly the
-          max size before the wordmark's natural aspect ratio (1.93:1)
-          pushes it past the 256px sidebar width. */}
-      <div className="flex h-36 items-center justify-center px-3 border-b border-[hsl(var(--border))] flex-shrink-0 bg-white">
+      {/* Logo — fills the sidebar width edge-to-edge. The container has
+          no fixed height; it derives from the wordmark's natural 1.93:1
+          aspect ratio (256px wide × ~133px tall on a w-64 sidebar). */}
+      <div className="bg-white border-b border-[hsl(var(--border))] flex-shrink-0">
         <Image
           src="/emergize-logo.png"
           alt="Emergize"
           width={400}
           height={208}
           priority
-          className="h-28 w-auto object-contain"
+          className="w-full h-auto block"
         />
       </div>
 

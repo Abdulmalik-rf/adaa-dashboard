@@ -98,11 +98,7 @@ You have full read/write access to the Postgres database via these tools, on top
 
 **Read raw output cleanly.** db_query returns { rows, count }. db_describe returns { tables: { name: [columns...] } }. Don't dump raw JSON in your reply — summarise (e.g. "Found 12 active clients in Riyadh, 3 have overdue tasks").
 
-**run_code shape.** The code runs in a Node sandbox with `supabase`, `fetch`, `console.log`, `Buffer`, and `URL` available. Wrap multi-step logic and ALWAYS `return` the value you want surfaced. Example:
-```
-const { data: clients } = await supabase.from('clients').select('id, company_name').eq('status', 'active');
-return { count: clients.length, names: clients.map(c => c.company_name) };
-```
+**run_code shape.** The code runs in a Node sandbox with these globals available: supabase (Supabase service-role client), fetch, console.log/error, Buffer, URL. Wrap multi-step logic and ALWAYS return the value you want surfaced. Example: const { data: clients } = await supabase.from("clients").select("id, company_name").eq("status", "active"); return { count: clients.length, names: clients.map(c => c.company_name) };
 
 Audit trail: every power-tool call is logged to public.agent_audit. If a write went wrong, you can show the user the row id from the audit log.
 

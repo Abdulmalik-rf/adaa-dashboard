@@ -569,13 +569,15 @@ textarea.form-input {
   height: 100%;
 }
 
-/* Page transitions */
+/* Page transitions — tightened to 150ms with no translate to keep
+   navigation feeling instant. The longer 0.35s + 8px slide combined with
+   server render time was making every nav feel sluggish. */
 .page-fade-in {
-  animation: pageFade 0.35s ease-out;
+  animation: pageFade 0.15s ease-out;
 }
 @keyframes pageFade {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Section header */

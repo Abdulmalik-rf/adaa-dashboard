@@ -77,6 +77,7 @@ export async function createTeamMember(formData: FormData): Promise<CreateTeamMe
       password,
       email_confirm: true,
       user_metadata: { full_name },
+      app_metadata: { role: profileRole },
     })
 
     let userId: string | undefined = created?.user?.id
@@ -86,7 +87,10 @@ export async function createTeamMember(formData: FormData): Promise<CreateTeamMe
         const { data: list } = await supa.auth.admin.listUsers({ perPage: 1000 })
         const existing = list?.users?.find((u) => u.email === email)
         if (existing) {
-          await supa.auth.admin.updateUserById(existing.id, { password })
+          await supa.auth.admin.updateUserById(existing.id, {
+            password,
+            app_metadata: { role: profileRole },
+          })
           userId = existing.id
           warning = 'Email was already registered — existing account password has been reset.'
         } else {
@@ -153,6 +157,9 @@ export async function resetTeamMemberPassword(memberId: string): Promise<CreateT
   const supa = agentSupabase()
   const password = generatePassword()
 
+  const profileRole =
+    member.role === 'admin' ? 'admin' : member.role === 'manager' ? 'manager' : 'staff'
+
   let userId: string | undefined = member.user_id
   if (!userId) {
     // No linked auth user yet — create one
@@ -161,6 +168,7 @@ export async function resetTeamMemberPassword(memberId: string): Promise<CreateT
       password,
       email_confirm: true,
       user_metadata: { full_name: member.full_name },
+      app_metadata: { role: profileRole },
     })
     if (cErr) {
       // Maybe already exists — fall back to lookup
@@ -168,7 +176,10 @@ export async function resetTeamMemberPassword(memberId: string): Promise<CreateT
       const existing = list?.users?.find((u) => u.email === member.email)
       if (existing) {
         userId = existing.id
-        await supa.auth.admin.updateUserById(existing.id, { password })
+        await supa.auth.admin.updateUserById(existing.id, {
+          password,
+          app_metadata: { role: profileRole },
+        })
       } else {
         return { ok: false, error: 'Failed to create login: ' + cErr.message }
       }
@@ -179,14 +190,15 @@ export async function resetTeamMemberPassword(memberId: string): Promise<CreateT
       await (supabaseClient as any).from('team_members').update({ user_id: userId }).eq('id', memberId)
     }
   } else {
-    const { error: uErr } = await supa.auth.admin.updateUserById(userId, { password })
+    const { error: uErr } = await supa.auth.admin.updateUserById(userId, {
+      password,
+      app_metadata: { role: profileRole },
+    })
     if (uErr) return { ok: false, error: 'Failed to reset: ' + uErr.message }
   }
 
   // Make sure profile row exists with the right role
   if (userId) {
-    const profileRole =
-      member.role === 'admin' ? 'admin' : member.role === 'manager' ? 'manager' : 'staff'
     await supa.from('profiles').upsert(
       { id: userId, email: member.email, full_name: member.full_name, role: profileRole },
       { onConflict: 'id' },

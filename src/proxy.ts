@@ -52,16 +52,25 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Check role to enforce admin vs user separation
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
+  // Fast path: user-allowed paths are reachable by everyone authenticated.
+  // Skip role lookup entirely. This eliminates the second Supabase round-trip
+  // on the most-visited pages (/my-dashboard, /my-tasks, /notifications).
+  if (isUserAllowed(pathname)) return response
 
-  const role = profile?.role || 'user'
+  // For admin-restricted paths, read role from app_metadata (already in the
+  // JWT — no DB round-trip needed). Falls back to a profiles query only if
+  // app_metadata is unset (legacy users who pre-date the migration).
+  let role: string | undefined = (user.app_metadata as any)?.role
+  if (!role) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+    role = profile?.role || 'user'
+  }
 
-  if (role !== 'admin' && !isUserAllowed(pathname)) {
+  if (role !== 'admin') {
     const url = request.nextUrl.clone()
     url.pathname = '/my-dashboard'
     return NextResponse.redirect(url)

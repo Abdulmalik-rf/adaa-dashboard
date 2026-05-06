@@ -11,8 +11,12 @@ export default async function MyTasksPage() {
   if (!user) redirect('/login')
 
   const { data: me } = await (supabaseClient as any)
-    .from('team_members').select('id').eq('user_id', user.id).maybeSingle()
+    .from('team_members').select('id, full_name').eq('user_id', user.id).maybeSingle()
   const myTeamMemberId = me?.id ?? '__none__'
+  const firstName =
+    (me?.full_name ?? user.profile?.full_name ?? user.email ?? 'there')
+      .split(' ')[0]
+      .split('@')[0]
 
   const [
     { data: tasks },
@@ -55,7 +59,7 @@ export default async function MyTasksPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            Hello Noura! You have <span className="font-semibold text-[hsl(var(--foreground))]">{pending.length}</span> pending task{pending.length !== 1 ? 's' : ''}
+            Hello {firstName}! You have <span className="font-semibold text-[hsl(var(--foreground))]">{pending.length}</span> pending task{pending.length !== 1 ? 's' : ''}
           </p>
         </div>
         <div className="flex gap-3">

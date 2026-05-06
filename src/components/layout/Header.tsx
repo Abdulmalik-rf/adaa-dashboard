@@ -119,14 +119,16 @@ export function Header({
 
   return (
     <header className="h-16 flex items-center justify-between px-6 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))] flex-shrink-0 sticky top-0 z-30">
-      {/* Left: Search */}
-      <div className="relative max-w-sm w-full hidden md:block">
+      {/* Left: Search — submits to /search?q=... */}
+      <form action="/search" method="GET" className="relative max-w-sm w-full hidden md:block">
         <Search className={`absolute ${dir === 'rtl' ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 h-4 w-4 text-[hsl(var(--muted-foreground))]`} />
         <input
+          name="q"
           placeholder={t.search}
+          autoComplete="off"
           className={`form-input h-9 text-sm bg-[hsl(var(--muted)/0.4)] border-transparent focus:border-[hsl(var(--primary))] focus:bg-[hsl(var(--card))] ${dir === 'rtl' ? 'pr-10 pl-3' : 'pl-10 pr-3'}`}
         />
-      </div>
+      </form>
 
       {/* Right: Actions */}
       <div className="flex items-center gap-2 mr-0 ml-auto" style={{ marginRight: dir === 'rtl' ? 'auto' : 0, marginLeft: dir === 'rtl' ? 0 : 'auto' }}>

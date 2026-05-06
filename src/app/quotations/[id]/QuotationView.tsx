@@ -1,5 +1,8 @@
 'use client'
 
+import { useState, useTransition } from 'react'
+import { acceptQuoteCreateContract } from '@/app/actions/quotations'
+
 // In-app quotation viewer. Mirrors the design system from
 // Emergize_Quotation_Generator.html — Archivo Black + Lilita One headlines,
 // black/lime/purple palette, decorative SVG shapes, solid green grand-total
@@ -77,6 +80,7 @@ export default function QuotationView({ q, items }: { q: Quotation; items: Item[
       <div className="toolbar">
         <a href="/quotations" className="back-link">← Back to quotations</a>
         <span className="quote-status" data-status={q.status}>{q.status}</span>
+        <AcceptToContractButton quoteId={q.id} status={q.status} number={q.quote_number} />
         <button className="print-btn" onClick={() => window.print()}>Print / Save PDF</button>
       </div>
 
@@ -674,5 +678,54 @@ export default function QuotationView({ q, items }: { q: Quotation; items: Item[
         }
       `}</style>
     </div>
+  )
+}
+
+// Visible only when the quote isn't already accepted/paid. One click flips
+// status → 'accepted' AND inserts a matching contracts row, then takes the
+// admin to /contracts to view the new entry.
+function AcceptToContractButton({
+  quoteId, status, number,
+}: { quoteId: string; status: string; number: string }) {
+  const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  if (status === 'accepted' || status === 'paid') return null
+
+  function handle() {
+    if (!confirm(`Mark ${number} as accepted and create a contract from it?`)) return
+    startTransition(async () => {
+      try {
+        const result = await acceptQuoteCreateContract(quoteId)
+        // Best path: navigate. window.location works in client components.
+        window.location.href = result.redirect_to
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed')
+      }
+    })
+  }
+
+  return (
+    <>
+      <button
+        className="print-btn"
+        style={{ background: '#5B4BFF', boxShadow: '0 4px 15px rgba(91, 75, 255, 0.25)' }}
+        onClick={handle}
+        disabled={pending}
+        title="Mark this quote as accepted and create a contract from its data"
+      >
+        {pending ? 'Creating contract…' : '✓ Accept & Create Contract'}
+      </button>
+      {error && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 100,
+          background: '#fee2e2', color: '#991b1b',
+          padding: '10px 16px', borderRadius: 12,
+          fontSize: 13, maxWidth: 360,
+        }}>
+          {error}
+        </div>
+      )}
+    </>
   )
 }

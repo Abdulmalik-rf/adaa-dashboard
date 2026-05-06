@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Plus, Settings, Trash2, Mail, Phone, Shield, Users } from "lucide-react"
 import { getDictionary } from "@/lib/i18n"
 import { AddTeamMemberModal } from "./AddTeamMemberModal"
+import { MemberLoginActions } from "./MemberLoginActions"
 import { deleteTeamMember } from "@/app/actions/team"
 import { TeamWorkload } from "./TeamWorkload"
 
@@ -96,6 +97,11 @@ export default async function TeamPage() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <MemberLoginActions
+                      memberId={member.id}
+                      hasUserId={!!member.user_id}
+                      memberName={member.full_name}
+                    />
                     <form action={deleteTeamMember.bind(null, member.id)}>
                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-500">
                           <Trash2 className="h-4 w-4" />

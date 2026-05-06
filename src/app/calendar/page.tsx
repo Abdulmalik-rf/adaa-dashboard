@@ -1,34 +1,42 @@
 import { supabaseClient } from "@/lib/supabase/client"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { CalendarClient } from "./CalendarClient"
 
 export const revalidate = 0
 
-export default async function ContentCalendarPage() {
-  const { data: items } = await (supabaseClient as any).from('content_items').select('*').order('publish_date', { ascending: true })
+// Aggregates every date-bearing entity in the dashboard into a single
+// month-grid view: tasks (due_date), reminders (due_date), content_items
+// (publish_date), contracts (start_date / end_date), weekly_reports
+// (period_start / period_end), quotations (issue_date / valid_until).
+// CalendarClient does the rendering; this page just queries.
+
+export default async function CalendarPage() {
+  const [
+    { data: tasks },
+    { data: reminders },
+    { data: contentItems },
+    { data: contracts },
+    { data: reports },
+    { data: quotations },
+    { data: clients },
+  ] = await Promise.all([
+    (supabaseClient as any).from('tasks').select('id, title, due_date, priority, status, client_id, assignee_id'),
+    (supabaseClient as any).from('reminders').select('id, title, due_date, due_time, priority, status, client_id'),
+    (supabaseClient as any).from('content_items').select('id, title, platform, content_type, publish_date, publish_time, schedule_status, client_id'),
+    (supabaseClient as any).from('contracts').select('id, title, start_date, end_date, status, client_id'),
+    (supabaseClient as any).from('weekly_reports').select('id, report_number, customer_name, customer_company, period_start, period_end, issue_date, status'),
+    (supabaseClient as any).from('quotations').select('id, quote_number, client_company, issue_date, valid_until, status'),
+    (supabaseClient as any).from('clients').select('id, company_name'),
+  ])
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Content Calendar</h1>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {(items as any[])?.map((item: any) => (
-          <Card key={item.id}>
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-start">
-                <CardTitle className="text-base">{item.title}</CardTitle>
-                <Badge variant={item.schedule_status === 'published' ? 'success' : item.schedule_status === 'scheduled' ? 'default' : 'secondary'}>{item.schedule_status}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
-                <Badge variant="outline" className="text-[10px]">{item.platform}</Badge>
-                <span>{item.publish_date} {item.publish_time}</span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        {(!items || (items as any[]).length === 0) && <p className="text-sm text-gray-500">No content items scheduled.</p>}
-      </div>
-    </div>
+    <CalendarClient
+      tasks={tasks || []}
+      reminders={reminders || []}
+      contentItems={contentItems || []}
+      contracts={contracts || []}
+      reports={reports || []}
+      quotations={quotations || []}
+      clients={clients || []}
+    />
   )
 }

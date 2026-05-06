@@ -36,9 +36,12 @@ next-dev-*.err.log
 whatsapp-agent/agent.log
 whatsapp-agent/agent.log.old
 
-# env files (can opt-in for committing if needed)
+# env files — ALL of them are ignored. Hostinger reads from the project's
+# env-vars panel, NOT from this file, so committing it leaks secrets for
+# zero deploy benefit. Was previously overridden with !.env.production
+# (see commit b2d044b) until we realised the production file contains the
+# Supabase service-role key + ChatGPT JWT.
 .env*
-!.env.production
 
 # vercel
 .vercel

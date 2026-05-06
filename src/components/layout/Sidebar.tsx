@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import Image from 'next/image'
 import {
   LayoutDashboard, Users, FileText, Bell, Folder, Settings,
-  CheckSquare, Menu, X,
+  CheckSquare, Menu, X, CalendarDays, Image as ImageIcon, Activity,
   BarChart3, MessageSquare, Sparkles, FileBarChart2
 } from 'lucide-react'
 import { useState } from 'react'
@@ -35,9 +35,12 @@ export function Sidebar() {
     { name: t.contracts, href: '/contracts', icon: FileText },
     { name: 'Quotations', href: '/quotations', icon: FileText },
     { name: 'Weekly Reports', href: '/reports', icon: FileBarChart2 },
+    { name: 'Calendar', href: '/calendar', icon: CalendarDays },
+    { name: 'Content', href: '/content', icon: ImageIcon },
     { name: t.files, href: '/files', icon: Folder },
     { name: t.campaigns, href: '/campaigns', icon: BarChart3 },
     { name: t.reminders, href: '/reminders', icon: MessageSquare },
+    { name: 'Agent Audit', href: '/admin/audit', icon: Activity },
     { name: t.settings, href: '/settings', icon: Settings },
   ]
 

@@ -43,16 +43,18 @@ export function Sidebar() {
 
   const SidebarContent = () => (
     <div className={`flex h-full flex-col bg-[hsl(var(--card))] border-${dir === 'rtl' ? 'l' : 'r'} border-[hsl(var(--border))] w-64`}>
-      {/* Logo — taller header to fit the bigger wordmark + transparent
-          PNG so dark:invert no longer paints a black rectangle around it */}
-      <div className="flex h-24 items-center justify-center px-4 border-b border-[hsl(var(--border))] flex-shrink-0">
+      {/* Logo — using the original "logo final.png" wordmark from the
+          project folder. dark:invert removed so the brand colours (black
+          wordmark + lime accent + EMERGE TO DOMINATE tagline) stay
+          intact in dark mode. */}
+      <div className="flex h-24 items-center justify-center px-4 border-b border-[hsl(var(--border))] flex-shrink-0 bg-white">
         <Image
           src="/emergize-logo.png"
           alt="Emergize"
           width={400}
           height={208}
           priority
-          className="h-16 w-auto object-contain dark:invert"
+          className="h-16 w-auto object-contain"
         />
       </div>
 

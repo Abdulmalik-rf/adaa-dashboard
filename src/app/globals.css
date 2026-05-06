@@ -580,6 +580,85 @@ textarea.form-input {
   to { opacity: 1; }
 }
 
+/* ============================================================================
+   Modal form contrast fix
+   ----------------------------------------------------------------------------
+   Several modals (AddCampaignModal, AddContractModal, AddReminderModal, etc.)
+   were written with `bg-transparent dark:bg-gray-900` on their inputs, which
+   makes the inputs disappear into the modal's dark background — users can't
+   see where to click. This rule forces ALL form controls inside any fixed
+   modal-overlay (the `[role="dialog"]` and our custom z-50 overlay pattern)
+   to use proper card-bg + border colours that show in both light and dark
+   mode. Defensive: even if I miss a modal in the per-file fixes, this catches
+   it.
+   ========================================================================== */
+.fixed.inset-0.z-50 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.fixed.inset-0.z-50 select,
+.fixed.inset-0.z-50 textarea,
+[role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+[role="dialog"] select,
+[role="dialog"] textarea {
+  /* Light mode — modal is white, inputs slightly off-white with visible border */
+  background-color: #f8fafc;     /* slate-50 */
+  color: #0f172a;                /* slate-900 */
+  border-color: #cbd5e1;         /* slate-300 — visible against white modal */
+  border-width: 1.5px;
+}
+.dark .fixed.inset-0.z-50 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.dark .fixed.inset-0.z-50 select,
+.dark .fixed.inset-0.z-50 textarea,
+.dark [role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.dark [role="dialog"] select,
+.dark [role="dialog"] textarea {
+  /* Dark mode — modal is near-black, inputs clearly lighter so users
+     see where to click. Border in mid-grey for definition. */
+  background-color: #1e293b !important;  /* slate-800 — distinct from #030712 modal bg */
+  color: #f1f5f9 !important;             /* slate-100 */
+  border-color: #475569 !important;      /* slate-600 — visible outline */
+}
+.fixed.inset-0.z-50 input:focus,
+.fixed.inset-0.z-50 select:focus,
+.fixed.inset-0.z-50 textarea:focus,
+[role="dialog"] input:focus,
+[role="dialog"] select:focus,
+[role="dialog"] textarea:focus {
+  border-color: hsl(var(--primary));
+  outline: none;
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.25);
+}
+.fixed.inset-0.z-50 input::placeholder,
+.fixed.inset-0.z-50 textarea::placeholder,
+[role="dialog"] input::placeholder,
+[role="dialog"] textarea::placeholder {
+  color: #94a3b8;       /* slate-400 — readable placeholder in light mode */
+  opacity: 1;
+}
+.dark .fixed.inset-0.z-50 input::placeholder,
+.dark .fixed.inset-0.z-50 textarea::placeholder,
+.dark [role="dialog"] input::placeholder,
+.dark [role="dialog"] textarea::placeholder {
+  color: #94a3b8;       /* slate-400 — readable placeholder in dark mode */
+  opacity: 0.85;
+}
+/* Modal labels: ensure proper contrast in both modes */
+.fixed.inset-0.z-50 label,
+[role="dialog"] label {
+  color: #1e293b;       /* slate-800 in light mode */
+}
+.dark .fixed.inset-0.z-50 label,
+.dark [role="dialog"] label {
+  color: #f1f5f9;       /* slate-100 in dark mode */
+}
+/* Modal title and body text — ensure they're readable */
+.dark .fixed.inset-0.z-50 h1,
+.dark .fixed.inset-0.z-50 h2,
+.dark .fixed.inset-0.z-50 h3,
+.dark [role="dialog"] h1,
+.dark [role="dialog"] h2,
+.dark [role="dialog"] h3 {
+  color: #f8fafc;       /* slate-50 — bright headings on dark modal */
+}
+
 /* Section header */
 .section-header {
   display: flex;

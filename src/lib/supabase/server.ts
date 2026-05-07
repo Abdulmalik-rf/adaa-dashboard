@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config'
 
 export async function createSupabaseServerClient() {
@@ -33,4 +34,21 @@ export async function getCurrentUser() {
     .eq('id', user.id)
     .maybeSingle()
   return profile ? { ...user, profile } : { ...user, profile: null }
+}
+
+// Server-side admin gate. Drop this at the top of any admin-only page
+// component to redirect non-admins to /my-dashboard (their natural
+// landing surface). Sidebar nav items are hidden client-side too, but
+// this guard catches direct URL navigation.
+//
+//   import { requireAdmin } from '@/lib/supabase/server'
+//   export default async function Page() {
+//     await requireAdmin()
+//     ...
+//   }
+export async function requireAdmin() {
+  const me = await getCurrentUser()
+  if (!me) redirect('/login')
+  if (me.profile?.role !== 'admin') redirect('/my-dashboard')
+  return me
 }

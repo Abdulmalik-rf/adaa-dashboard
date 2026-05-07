@@ -1,9 +1,20 @@
+import { redirect } from "next/navigation"
 import { supabaseClient } from "@/lib/supabase/client"
+import { getCurrentUser } from "@/lib/supabase/server"
 import { DashboardClient } from "./DashboardClient"
 
 export const revalidate = 0
 
 export default async function DashboardHome() {
+  // Non-admins land on their personalized /my-dashboard. The executive
+  // home shows agency-wide KPIs (revenue across all contracts, total
+  // clients, pending tasks across the whole team) which aren't useful or
+  // appropriate for staff role. /my-dashboard scopes to "your stuff".
+  const me = await getCurrentUser()
+  if (me && me.profile?.role !== 'admin') {
+    redirect('/my-dashboard')
+  }
+
   const [
     { data: clients },
     { data: contracts },

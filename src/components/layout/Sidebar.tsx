@@ -11,7 +11,7 @@ import {
 import { useState } from 'react'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
-export function Sidebar() {
+export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const { t, dir } = useLanguage()
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -21,28 +21,31 @@ export function Sidebar() {
     return pathname.startsWith(href)
   }
 
+  // adminOnly items are filtered out of the rendered nav for non-admin
+  // viewers. Direct URL access is also blocked server-side via
+  // requireAdmin() at the top of each admin-only page.
   const navTop = [
     { name: t.dashboard, href: '/', icon: LayoutDashboard },
     { name: t.myWorkspace, href: '/my-dashboard', icon: Sparkles },
-    { name: t.finance, href: '/finance', icon: BarChart3 },
-    { name: t.clients, href: '/clients', icon: Users },
-    { name: t.tasks, href: '/tasks', icon: CheckSquare },
+    { name: t.finance, href: '/finance', icon: BarChart3, adminOnly: true },
+    { name: t.clients, href: '/clients', icon: Users, adminOnly: true },
+    { name: t.tasks, href: '/tasks', icon: CheckSquare, adminOnly: true },
     { name: t.myTasks, href: '/my-tasks', icon: Bell },
-  ]
+  ].filter((item) => isAdmin || !item.adminOnly)
 
   const navBottom = [
-    { name: t.team, href: '/team', icon: Users },
-    { name: t.contracts, href: '/contracts', icon: FileText },
-    { name: 'Quotations', href: '/quotations', icon: FileText },
+    { name: t.team, href: '/team', icon: Users, adminOnly: true },
+    { name: t.contracts, href: '/contracts', icon: FileText, adminOnly: true },
+    { name: 'Quotations', href: '/quotations', icon: FileText, adminOnly: true },
     { name: 'Weekly Reports', href: '/reports', icon: FileBarChart2 },
     { name: 'Calendar', href: '/calendar', icon: CalendarDays },
     { name: 'Content', href: '/content', icon: ImageIcon },
     { name: t.files, href: '/files', icon: Folder },
     { name: t.campaigns, href: '/campaigns', icon: BarChart3 },
     { name: t.reminders, href: '/reminders', icon: MessageSquare },
-    { name: 'Agent Audit', href: '/admin/audit', icon: Activity },
+    { name: 'Agent Audit', href: '/admin/audit', icon: Activity, adminOnly: true },
     { name: t.settings, href: '/settings', icon: Settings },
-  ]
+  ].filter((item) => isAdmin || !item.adminOnly)
 
   const SidebarContent = () => (
     <div className={`flex h-full flex-col bg-[hsl(var(--card))] border-${dir === 'rtl' ? 'l' : 'r'} border-[hsl(var(--border))] w-64`}>

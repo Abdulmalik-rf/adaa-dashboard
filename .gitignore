@@ -36,12 +36,17 @@ next-dev-*.err.log
 whatsapp-agent/agent.log
 whatsapp-agent/agent.log.old
 
-# env files — ALL of them are ignored. Hostinger reads from the project's
-# env-vars panel, NOT from this file, so committing it leaks secrets for
-# zero deploy benefit. Was previously overridden with !.env.production
-# (see commit b2d044b) until we realised the production file contains the
-# Supabase service-role key + ChatGPT JWT.
+# env files — every file matching .env* is ignored EXCEPT .env.production.
+# Hostinger's shared-hosting Node.js apps don't expose env-var management
+# via their public API, so the only way to ship runtime config is to commit
+# it. The committed .env.production carries ONLY non-dangerous vars
+# (NEXT_PUBLIC_*, the ChatGPT JWT which expires in ~7 days, model config,
+# timezone). DANGEROUS secrets (SUPABASE_SERVICE_ROLE_KEY, REVALIDATE_SECRET)
+# stay in .env.production.local (gitignored) for local dev, and must be set
+# in Hostinger's hPanel env-vars UI for production. See the comment at the
+# top of .env.production for the full breakdown.
 .env*
+!.env.production
 
 # vercel
 .vercel

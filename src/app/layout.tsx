@@ -65,7 +65,10 @@ export default async function RootLayout({
           ) : (
             <>
               <div className="flex h-full min-h-screen bg-[hsl(var(--background))]">
-                <Sidebar isAdmin={currentUser?.profile?.role === 'admin'} />
+                <Sidebar
+                  isAdmin={currentUser?.profile?.role === 'admin'}
+                  currentUser={currentUser}
+                />
                 <div className="flex flex-1 flex-col overflow-hidden min-w-0">
                   <Header notifications={notifications} currentUser={currentUser} />
                   <main className="flex-1 overflow-y-auto p-4 sm:p-6 page-fade-in text-[hsl(var(--foreground))]">

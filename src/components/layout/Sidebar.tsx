@@ -11,10 +11,39 @@ import {
 import { useState } from 'react'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
-export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
+interface CurrentUser {
+  id?: string
+  email?: string
+  profile?: { full_name?: string; role?: string; avatar_url?: string } | null
+}
+
+export function Sidebar({ isAdmin = false, currentUser }: { isAdmin?: boolean; currentUser?: CurrentUser | null }) {
   const { t, dir } = useLanguage()
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Real user info for the sidebar footer (replaces hardcoded "Fahad Al-Dossari / Agency Admin")
+  const displayName =
+    currentUser?.profile?.full_name ||
+    currentUser?.email?.split('@')[0] ||
+    'User'
+  const roleRaw = currentUser?.profile?.role || (isAdmin ? 'admin' : 'user')
+  const displayRole =
+    roleRaw === 'admin'
+      ? 'Admin'
+      : roleRaw === 'manager'
+        ? 'Manager'
+        : roleRaw === 'staff'
+          ? 'Staff'
+          : 'User'
+  const initials =
+    displayName
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((p) => p[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || 'U'
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
@@ -101,15 +130,22 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
         ))}
       </div>
 
-      {/* User footer */}
+      {/* User footer — shows the actual signed-in user's name + role */}
       <div className="border-t border-[hsl(var(--border))] p-4 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-zinc-900 flex items-center justify-center text-zinc-900 text-xs font-bold shadow-md">
-            FA
+          <div
+            className="h-9 w-9 rounded-full bg-gradient-to-br from-[hsl(var(--primary))] to-zinc-900 flex items-center justify-center text-zinc-900 text-xs font-bold shadow-md"
+            title={currentUser?.email ?? ''}
+          >
+            {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-[hsl(var(--foreground))] truncate">Fahad Al-Dossari</p>
-            <p className="text-xs text-[hsl(var(--muted-foreground))] truncate">Agency Admin</p>
+            <p className="text-sm font-semibold text-[hsl(var(--foreground))] truncate" title={displayName}>
+              {displayName}
+            </p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] truncate" title={currentUser?.email ?? ''}>
+              {displayRole}
+            </p>
           </div>
         </div>
       </div>

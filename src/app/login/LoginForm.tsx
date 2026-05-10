@@ -32,8 +32,8 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
     setRequestingCode(true)
     try {
       const result = await requestAdminVerificationCode(adminEmailDraft || undefined)
-      if (!result.ok) {
-        setError(result.error || 'Could not send verification code.')
+      if (!result?.ok) {
+        setError(result?.error || 'Could not send verification code (no error message returned).')
       } else {
         setCodeSent(true)
         setInfo(
@@ -42,6 +42,11 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
             : 'Code sent to the agency owner. Check the inbox (and spam) for the 6-digit code, then enter it below to finish creating the admin account.',
         )
       }
+    } catch (e: any) {
+      // Server action threw — surface it instead of silently failing.
+      const msg = e?.message || (typeof e === 'string' ? e : null) || 'Unexpected error sending verification code. Check console for details.'
+      setError(msg)
+      console.error('[admin-signup] requestAdminVerificationCode threw:', e)
     } finally {
       setRequestingCode(false)
     }

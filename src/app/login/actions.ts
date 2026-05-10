@@ -97,6 +97,28 @@ function generateCode(): string {
 }
 
 export async function requestAdminVerificationCode(requestedForEmail?: string) {
+  // Catch-all wrapper so the action ALWAYS returns a structured response
+  // instead of throwing — otherwise a missing env var crashes silently
+  // on the client without any error message reaching the UI.
+  try {
+    return await _requestAdminVerificationCodeInner(requestedForEmail)
+  } catch (e: any) {
+    const msg = e?.message || String(e) || 'Unknown error'
+    console.error('[requestAdminVerificationCode] failed:', msg, e?.stack)
+    return { ok: false, error: `Server error: ${msg}` }
+  }
+}
+
+async function _requestAdminVerificationCodeInner(requestedForEmail?: string) {
+  // Surface env-var problems early with a clear message instead of letting
+  // agentSupabase() throw a generic error that's hard to interpret.
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return {
+      ok: false,
+      error: 'SUPABASE_SERVICE_ROLE_KEY is not set on the server. Add it in Hostinger panel → Environment Variables, then redeploy.',
+    }
+  }
+
   const supa = agentSupabase()
 
   // Rate limit: at most 3 codes per 10 min for the same destination email

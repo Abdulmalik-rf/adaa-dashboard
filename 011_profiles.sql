@@ -38,19 +38,21 @@ create trigger profiles_updated_at_trg
   before update on public.profiles
   for each row execute procedure public.tg_profiles_updated_at();
 
--- RLS — every signed-in user can read + update THEIR OWN profile;
--- admins can read everyone's. Service-role bypasses RLS.
+-- RLS — every signed-in user can read + update THEIR OWN profile.
+-- Service-role bypasses RLS for admin-wide reads (agentSupabase()).
+--
+-- IMPORTANT: do NOT add a policy that sub-selects from profiles (e.g.
+-- "or exists (select 1 from profiles where role='admin')"). That causes
+-- infinite recursion because the sub-select itself triggers the same
+-- policy. Use auth.jwt() -> 'app_metadata' ->> 'role' to read role
+-- without re-querying profiles.
 alter table public.profiles enable row level security;
 
 drop policy if exists "profiles_select_own_or_admin" on public.profiles;
-create policy "profiles_select_own_or_admin" on public.profiles
+drop policy if exists "profiles_select_own" on public.profiles;
+create policy "profiles_select_own" on public.profiles
   for select to authenticated
-  using (
-    auth.uid() = id
-    or exists (
-      select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
-    )
-  );
+  using (auth.uid() = id);
 
 drop policy if exists "profiles_update_own" on public.profiles;
 create policy "profiles_update_own" on public.profiles
@@ -61,12 +63,8 @@ create policy "profiles_update_own" on public.profiles
 drop policy if exists "profiles_admin_write" on public.profiles;
 create policy "profiles_admin_write" on public.profiles
   for all to authenticated
-  using (
-    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
-  )
-  with check (
-    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
-  );
+  using ((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin')
+  with check ((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin');
 
 -- Auto-create a profile row when a new auth user is created via the dashboard
 -- (signup flow). Service-role created users (createTeamMember etc.) explicitly

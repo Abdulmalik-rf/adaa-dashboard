@@ -1344,6 +1344,110 @@ async function updateAgencySettings(input) {
 }
 
 // =============================================================================
+// PUBLIC CHATBOT — book_meeting
+// =============================================================================
+// Insert-only. Lands a public-website visitor's meeting request into the
+// reminders table (status='pending', source='public_chat'), where the
+// dashboard's /calendar picks it up like any other pending reminder.
+// Performs no reads of CRM data — visitors must never be able to extract
+// client/contract/quotation info through this surface.
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+async function bookMeeting(input: any) {
+  const name = String(input?.name ?? '').trim()
+  const email = String(input?.email ?? '').trim()
+  const phone = input?.phone ? String(input.phone).trim() : null
+  const preferredAt = String(input?.preferred_at ?? '').trim()
+  const topic = String(input?.topic ?? '').trim().slice(0, 500)
+  const language = input?.language === 'ar' ? 'ar' : 'en'
+
+  if (!name) return { ok: false, error: 'Name is required.' }
+  if (!email || !EMAIL_RE.test(email)) {
+    return { ok: false, error: 'A valid email is required.' }
+  }
+  if (!topic) return { ok: false, error: 'Topic is required.' }
+  if (!preferredAt) return { ok: false, error: 'Preferred meeting time is required.' }
+
+  // Parse ISO datetime by string-splitting rather than `new Date()` so the
+  // wall-clock time the model passes (e.g. "2026-05-12T15:00:00" meaning
+  // 15:00 Riyadh) gets stored as 15:00 in due_time. Going through Date
+  // would parse naked ISO as local OR UTC depending on host and we'd
+  // shift the hour. The existing add_reminder tool follows the same
+  // wall-clock convention.
+  const m = preferredAt.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/)
+  if (!m) {
+    return {
+      ok: false,
+      error:
+        'preferred_at must be a valid ISO datetime like 2026-05-12T15:00:00.',
+    }
+  }
+  const due_date = m[1]
+  const due_time = `${m[2]}:${m[3]}:${m[4] ?? '00'}`
+
+  // Sanity check the date is real (catches "2026-13-45T99:00:00" etc.).
+  const sanity = new Date(`${due_date}T${due_time}`)
+  if (isNaN(sanity.getTime())) {
+    return { ok: false, error: 'preferred_at is not a real calendar datetime.' }
+  }
+
+  // Stuff visitor contact info into description so the admin sees email
+  // / phone on the reminder card without us needing extra columns.
+  const descriptionLines = [
+    `Topic: ${topic}`,
+    `Email: ${email}`,
+    phone ? `Phone: ${phone}` : null,
+    `Language: ${language}`,
+    `Source: public_chat (emergize-sa.com visitor)`,
+  ].filter(Boolean) as string[]
+
+  const row = {
+    title: `Public meeting request — ${name}`,
+    description: descriptionLines.join('\n'),
+    type: 'meeting_request',
+    due_date,
+    due_time,
+    priority: 'medium',
+    status: 'pending',
+    source: 'public_chat',
+    // client_id intentionally null — the visitor isn't a CRM client yet.
+  }
+
+  const { data, error } = await supabase
+    .from('reminders')
+    .insert(row)
+    .select('id')
+    .single()
+  if (error) {
+    return { ok: false, error: `Failed to save meeting request: ${error.message}` }
+  }
+
+  await revalidate(['/calendar', '/reminders'])
+
+  // Format the wall-clock time for the visitor confirmation. We avoid
+  // toLocaleString here (which would re-introduce a timezone shift) —
+  // the user asked for X, we stored X, we say X back.
+  const dateLabel = sanity.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC', // sanity is built without TZ; treat it as UTC for label only
+  })
+  const friendlyTime = `${dateLabel}, ${due_time.slice(0, 5)}`
+
+  return {
+    ok: true,
+    meeting_id: data.id,
+    scheduled_for: `${due_date}T${due_time}`,
+    message:
+      language === 'ar'
+        ? `تم استلام طلبك للقاء بتاريخ ${friendlyTime}. سيتواصل معك فريق Emergize عبر ${email} لتأكيد الموعد.`
+        : `Got it — meeting request saved for ${friendlyTime}. The Emergize team will confirm at ${email}.`,
+  }
+}
+
+// =============================================================================
 // REGISTRY
 // =============================================================================
 // NOTE: send_quotation_pdf and long-term memory tools are NOT exposed here —
@@ -1436,6 +1540,8 @@ const registry: Record<string, (input: any) => Promise<any>> = {
   update_report_service: updateReportService,
   remove_report_service: removeReportService,
   upload_image: uploadImage,
+  // public chatbot — insert-only, no reads
+  book_meeting: bookMeeting,
 }
 
 export async function runTool(name, input) {

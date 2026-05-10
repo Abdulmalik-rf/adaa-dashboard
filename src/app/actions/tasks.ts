@@ -1,18 +1,37 @@
 "use server"
 
 import { supabaseClient } from "@/lib/supabase/client"
+import { getCurrentUser } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 
+// Approval workflow:
+//   - Admin marking "complete"           → status = 'completed'  (direct)
+//   - Non-admin marking "complete"       → status = 'review'     (awaits admin approval)
+//   - Admin clicks Approve in panel      → status = 'completed', assignee notified
+//   - Admin clicks Reject in panel       → status = 'in_progress', assignee notified
+//
+// Notification types in flight:
+//   task_pending_review  — admin-targeted, has Approve/Reject buttons
+//   task_approved        — assignee-targeted, informational
+//   task_rejected        — assignee-targeted, informational
+//   task_completed       — global, audit log of admin completions
 export async function markTaskCompleted(taskId: string, type: 'task' | 'content' = 'task', targetStatus: string = 'completed') {
   const table = type === 'content' ? 'content_items' : 'tasks'
   const statusField = type === 'content' ? 'task_status' : 'status'
-  
-  // 1. Update task to completed
+
+  // Role check: non-admins go through 'review' instead of completed.
+  // Reopens (targetStatus !== 'completed') bypass the gate.
+  const me = await getCurrentUser()
+  const isAdmin = me?.profile?.role === 'admin'
+  const wantsToComplete = targetStatus === 'completed'
+  const actualStatus = (wantsToComplete && !isAdmin) ? 'review' : targetStatus
+
+  // 1. Update task
   const { data, error } = await (supabaseClient as any)
     .from(table)
-    .update({ 
-      [statusField]: targetStatus,
-      completed_at: targetStatus === 'completed' ? new Date().toISOString() : null
+    .update({
+      [statusField]: actualStatus,
+      completed_at: actualStatus === 'completed' ? new Date().toISOString() : null,
     })
     .eq('id', taskId)
     .select()
@@ -22,19 +41,123 @@ export async function markTaskCompleted(taskId: string, type: 'task' | 'content'
     return
   }
 
-  // 2. Create Notification for Admin
-  if (targetStatus === 'completed') {
-    const itemName = type === 'content' ? data[0].title : data[0].title
-    await (supabaseClient as any)
-      .from('notifications')
-      .insert({
-        user_id: null, // null means global/admin
-        title: 'Task Completed',
-        message: `Task/Content "${itemName}" has been marked as completed.`,
-        type: 'task_completed',
-        related_id: taskId,
-        is_read: false
-      })
+  const itemName = data[0].title
+  // 2. Notification path
+  if (actualStatus === 'review') {
+    // Non-admin submitted for review → notify admins (user_id: null = all admins)
+    await (supabaseClient as any).from('notifications').insert({
+      user_id: null,
+      title: 'Task Pending Review',
+      message: `"${itemName}" has been submitted for your approval. Approve or send back from the notifications panel.`,
+      type: 'task_pending_review',
+      related_id: taskId,
+      is_read: false,
+    })
+  } else if (actualStatus === 'completed') {
+    // Admin marked completed directly → audit log
+    await (supabaseClient as any).from('notifications').insert({
+      user_id: null,
+      title: 'Task Completed',
+      message: `Task/Content "${itemName}" has been marked as completed.`,
+      type: 'task_completed',
+      related_id: taskId,
+      is_read: false,
+    })
+  }
+
+  revalidatePath('/my-tasks')
+  revalidatePath('/tasks')
+  revalidatePath('/')
+  revalidatePath('/notifications')
+}
+
+// Admin approves a task that was submitted for review.
+// Moves task to 'completed', closes the pending-review notification, and
+// pings the assignee with a 'task_approved' notification.
+export async function approveTaskCompletion(taskId: string, type: 'task' | 'content' = 'task') {
+  const me = await getCurrentUser()
+  if (me?.profile?.role !== 'admin') {
+    throw new Error('Only admins can approve task completions')
+  }
+
+  const table = type === 'content' ? 'content_items' : 'tasks'
+  const statusField = type === 'content' ? 'task_status' : 'status'
+
+  const { data, error } = await (supabaseClient as any)
+    .from(table)
+    .update({
+      [statusField]: 'completed',
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', taskId)
+    .select()
+  if (error || !data || data.length === 0) throw new Error('Failed to approve')
+
+  // Close out the pending-review notifications for this task
+  await (supabaseClient as any).from('notifications')
+    .update({ is_read: true })
+    .eq('type', 'task_pending_review')
+    .eq('related_id', taskId)
+
+  // Notify the assignee (resolve their auth user_id from team_members)
+  const assigneeId = data[0].assignee_id
+  if (assigneeId) {
+    const { data: tm } = await (supabaseClient as any)
+      .from('team_members').select('user_id').eq('id', assigneeId).maybeSingle()
+    await (supabaseClient as any).from('notifications').insert({
+      user_id: tm?.user_id ?? null,
+      title: 'Task Approved ✓',
+      message: `Your completion of "${data[0].title}" has been approved.`,
+      type: 'task_approved',
+      related_id: taskId,
+      is_read: false,
+    })
+  }
+
+  revalidatePath('/my-tasks')
+  revalidatePath('/tasks')
+  revalidatePath('/')
+  revalidatePath('/notifications')
+}
+
+// Admin rejects a task — sends it back to in_progress, closes the
+// pending-review notification, and pings the assignee.
+export async function rejectTaskCompletion(taskId: string, type: 'task' | 'content' = 'task') {
+  const me = await getCurrentUser()
+  if (me?.profile?.role !== 'admin') {
+    throw new Error('Only admins can reject task completions')
+  }
+
+  const table = type === 'content' ? 'content_items' : 'tasks'
+  const statusField = type === 'content' ? 'task_status' : 'status'
+
+  const { data, error } = await (supabaseClient as any)
+    .from(table)
+    .update({
+      [statusField]: 'in_progress',
+      completed_at: null,
+    })
+    .eq('id', taskId)
+    .select()
+  if (error || !data || data.length === 0) throw new Error('Failed to reject')
+
+  await (supabaseClient as any).from('notifications')
+    .update({ is_read: true })
+    .eq('type', 'task_pending_review')
+    .eq('related_id', taskId)
+
+  const assigneeId = data[0].assignee_id
+  if (assigneeId) {
+    const { data: tm } = await (supabaseClient as any)
+      .from('team_members').select('user_id').eq('id', assigneeId).maybeSingle()
+    await (supabaseClient as any).from('notifications').insert({
+      user_id: tm?.user_id ?? null,
+      title: 'Task Sent Back',
+      message: `"${data[0].title}" was sent back — please continue working on it.`,
+      type: 'task_rejected',
+      related_id: taskId,
+      is_read: false,
+    })
   }
 
   revalidatePath('/my-tasks')

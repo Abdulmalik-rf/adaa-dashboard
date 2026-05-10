@@ -37,7 +37,9 @@ export default async function MyTasksPage() {
     }))
   ]
 
-  const pending = allMyTasks.filter(t => t.status !== 'completed')
+  const isAdmin = user.profile?.role === 'admin'
+  const pending = allMyTasks.filter(t => t.status !== 'completed' && t.status !== 'review')
+  const inReview = allMyTasks.filter(t => t.status === 'review')
   const completed = allMyTasks.filter(t => t.status === 'completed')
 
   const findClient = (id: string) => clients?.find((c: any) => c.id === id)?.company_name || '—'
@@ -113,12 +115,43 @@ export default async function MyTasksPage() {
               </div>
               <form action={markTaskCompleted.bind(null, task.id, task._type, 'completed')}>
                 <button type="submit" className="btn btn-xs btn-primary w-full">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Mark as Completed
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {isAdmin ? ' Mark as Completed' : ' Submit for Review'}
                 </button>
               </form>
             </div>
           ))}
         </div>
+
+        {/* In Review — submitted, awaiting admin approval. Only shows if there's anything in review */}
+        {inReview.length > 0 && (
+          <div className="space-y-3 md:col-span-2">
+            <h2 className="font-bold text-sm flex items-center gap-2">
+              <Clock className="h-4 w-4 text-amber-500" /> Awaiting Admin Approval ({inReview.length})
+            </h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              {inReview.map((task: any) => (
+                <div key={task.id} className="premium-card p-4 border-l-4 border-l-amber-500 bg-amber-50/30 dark:bg-amber-900/5 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <span className="text-base flex-shrink-0">{task._type === 'content' ? (platformIcon[task.platform] || platformIcon.default) : '📋'}</span>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-sm">{task.title}</h3>
+                      <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{task.description}</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="badge text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                          Pending Review
+                        </span>
+                        <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                          Admin will approve or send back
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Completed */}
         <div className="space-y-3">

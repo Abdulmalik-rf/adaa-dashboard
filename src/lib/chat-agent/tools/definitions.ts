@@ -1394,3 +1394,57 @@ export const tools = [
   ...weeklyReportTools,
   ...settingsTools,
 ]
+
+// =============================================================================
+// PUBLIC CHATBOT — restricted single-tool surface
+// =============================================================================
+// The only thing the public-website chatbot can do besides answering FAQs.
+// Insert-only into reminders. No reads of any kind. No client/quotation/
+// contract/notification access. The route handler swaps `tools` for
+// `publicChatTools` when mode === 'public'.
+
+const publicChatTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'book_meeting',
+      description:
+        "Book a meeting request from a public-website visitor. Stores the request in the agency's calendar with status 'pending' so the team can confirm later. ALWAYS confirm name + email + preferred date/time + topic with the visitor BEFORE calling this. The agent should resolve casual phrasing like 'Tuesday at 3pm' into an ISO datetime before passing preferred_at.",
+      parameters: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: "Visitor's full name.",
+          },
+          email: {
+            type: 'string',
+            description: "Visitor's email address (used to confirm the meeting later).",
+          },
+          phone: {
+            type: 'string',
+            description: 'Optional phone number (international format if known, e.g. +966...).',
+          },
+          preferred_at: {
+            type: 'string',
+            description:
+              'ISO 8601 datetime of the requested meeting time. The model must convert phrases like "Tuesday 3pm" or "tomorrow at 10am" into ISO before calling. Example: "2026-05-12T15:00:00".',
+          },
+          topic: {
+            type: 'string',
+            description:
+              'Brief description of what the visitor wants to discuss (max 500 chars). Required.',
+          },
+          language: {
+            type: 'string',
+            enum: ['ar', 'en'],
+            description: "Visitor's preferred language. Defaults to 'en'.",
+          },
+        },
+        required: ['name', 'email', 'preferred_at', 'topic'],
+      },
+    },
+  },
+]
+
+export { publicChatTools }

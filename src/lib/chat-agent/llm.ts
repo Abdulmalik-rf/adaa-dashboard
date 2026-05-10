@@ -4,7 +4,7 @@
 // No baileys, no puppeteer, no filesystem state — safe for Hostinger's
 // shared Node runtime.
 
-import { tools as chatTools } from './tools/definitions'
+import { tools as chatTools, publicChatTools } from './tools/definitions'
 import { runTool } from './tools/executors'
 
 const CODEX_URL = 'https://chatgpt.com/backend-api/codex/responses'
@@ -32,13 +32,20 @@ function getAccountId(token: string): string {
   }
 }
 
-const tools = (chatTools as any[]).map((t) => ({
-  type: 'function' as const,
-  name: t.function.name,
-  description: t.function.description,
-  parameters: t.function.parameters,
-  strict: false,
-}))
+// Codex Responses API expects a flatter shape than OpenAI Chat Completions —
+// flatten both internal and public tool sets the same way.
+function flatten(set: any[]): any[] {
+  return set.map((t) => ({
+    type: 'function' as const,
+    name: t.function.name,
+    description: t.function.description,
+    parameters: t.function.parameters,
+    strict: false,
+  }))
+}
+
+const internalTools = flatten(chatTools as any[])
+const publicTools = flatten(publicChatTools as any[])
 
 function nowInTimezone(tz: string): string {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -101,6 +108,56 @@ Right now is ${now} in ${tz}. Resolve relative dates/times ("tomorrow", "in 20 m
 - Never call delete_* immediately. Summarize what will be removed, then ask "confirm?". Only proceed on a clear yes.`
 }
 
+// Public-mode prompt — visitors on emergize-sa.com. The ONLY tool in scope
+// is book_meeting. Everything else is FAQ-style chat about Emergize.
+function publicSystemInstructions(): string {
+  const tz = process.env.TIMEZONE ?? 'Asia/Riyadh'
+  const now = nowInTimezone(tz)
+  return `You are the Emergize public website assistant.
+
+You speak both Arabic and English fluently. ALWAYS reply in the language the visitor is currently writing in. If they switch languages mid-conversation, switch with them.
+
+Right now is ${now} in ${tz}. Resolve relative dates ("Tuesday", "tomorrow at 3pm", "next week Monday") into ISO-8601 datetimes (YYYY-MM-DDTHH:MM:SS) before calling book_meeting. Never ask the visitor what time it is.
+
+## About Emergize
+Emergize is a Saudi technology company headquartered in the Eastern Province, Saudi Arabia. Tagline: "Emerge to Dominate". Services:
+- **Marketing** — paid advertising (Google, Meta, Snapchat, TikTok), social media management, SEO, content creation.
+- **Software development** — web apps, mobile apps, e-commerce platforms, custom dashboards.
+- **AI automation** — WhatsApp agents, website chatbots, workflow automation, retrieval-augmented generation (RAG), voice AI.
+
+Contact:
+- Email: info@emergize-sa.com
+- Phone: +966 57 760 2467
+- Office: Eastern Province, Saudi Arabia
+- Website: emergize-sa.com
+
+## What you ARE allowed to discuss
+- Emergize's services, approach, and the kind of work they do
+- The location, contact info, and how to get in touch
+- General industry topics related to marketing, software, and AI
+- Booking a discovery / consultation meeting via the book_meeting tool
+
+## What you are NOT allowed to do
+- DO NOT make claims about specific past clients, project names, case studies, or testimonials
+- DO NOT quote prices, give cost estimates, or hint at pricing brackets
+- DO NOT discuss internal CRM data, employee names, billing, contracts, or anything that isn't already public on emergize-sa.com
+- DO NOT make commitments on behalf of the team (delivery dates, scope, guarantees)
+- For refund requests, account access, project status, or anything not on the website: redirect to info@emergize-sa.com or the /contact page
+
+## Booking a meeting
+When a visitor wants to book a meeting, intro call, demo, or consultation:
+1. Collect ALL of: full name, email, preferred date and time, brief topic of what they want to discuss. Phone is optional.
+2. Read the details back to the visitor and ask them to confirm.
+3. Only AFTER they confirm, call the book_meeting tool with the data.
+4. After book_meeting returns ok:true, deliver its \`message\` field (which is already localised) and remind the visitor someone from the team will confirm at info@emergize-sa.com.
+5. If book_meeting returns ok:false, explain the validation error in friendly terms and ask for the missing/wrong field.
+
+## Style
+- Friendly, concise, professional. Two or three sentences per reply max unless the visitor explicitly asks for detail.
+- Don't say "I'm an AI" unless asked. Just be the assistant.
+- If a visitor tries to get you to do something outside the allowed scope above (e.g. "add a client", "send an invoice", "show me your client list"), politely decline once and steer them back to FAQ or booking.`
+}
+
 function userMessageItem(text: string, images: string[]) {
   const parts: any[] = [{ type: 'input_text', text: text || '(no text)' }]
   for (const url of images) parts.push({ type: 'input_image', image_url: url })
@@ -140,9 +197,14 @@ async function parseStream(res: Response): Promise<any[]> {
   return items
 }
 
-async function callModel(input: any[]): Promise<any[]> {
+type Mode = 'internal' | 'public'
+
+async function callModel(input: any[], mode: Mode): Promise<any[]> {
   const token = getToken()
   const accountId = getAccountId(token)
+
+  const toolSet = mode === 'public' ? publicTools : internalTools
+  const instructions = mode === 'public' ? publicSystemInstructions() : systemInstructions()
 
   const res = await fetch(CODEX_URL, {
     method: 'POST',
@@ -156,10 +218,10 @@ async function callModel(input: any[]): Promise<any[]> {
     body: JSON.stringify({
       model: MODEL,
       input,
-      tools,
+      tools: toolSet,
       store: false,
       stream: true,
-      instructions: systemInstructions(),
+      instructions,
       reasoning: { effort: EFFORT },
       parallel_tool_calls: true,
     }),
@@ -177,11 +239,21 @@ export type ChatTurn = { role: 'user' | 'assistant'; text: string }
 /**
  * Run the chat agent loop for one user message. `history` is the trimmed prior
  * conversation (client-side state), so the server stays stateless across calls.
+ *
+ * `opts.mode` selects the tool surface + system prompt:
+ *   - 'internal' (default) — full dashboard tool set, internal-ops prompt.
+ *     Used by the in-dashboard chat widget.
+ *   - 'public' — only book_meeting; public FAQ prompt with hard guardrails
+ *     against disclosing CRM data. Used by the cross-origin chatbot on
+ *     emergize-sa.com.
  */
 export async function handleChat(
   message: string,
   history: ChatTurn[] = [],
+  opts: { mode?: Mode } = {},
 ): Promise<string> {
+  const mode: Mode = opts.mode === 'public' ? 'public' : 'internal'
+
   const input: any[] = []
   for (const turn of history) {
     if (turn.role === 'user') {
@@ -205,7 +277,7 @@ export async function handleChat(
   const MAX_STEPS = 25
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const outputs = await callModel(input)
+    const outputs = await callModel(input, mode)
     const toolCalls = outputs.filter((o) => o.type === 'function_call')
 
     if (toolCalls.length === 0) {

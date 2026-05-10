@@ -3,6 +3,7 @@
 import { Bell, Search, Sun, Moon, ChevronDown, Check, X, Languages, LogOut } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { markNotificationRead, markAllNotificationsRead } from '@/app/actions/notifications'
+import { approveTaskCompletion, rejectTaskCompletion } from '@/app/actions/tasks'
 import { logoutAction } from '@/app/login/actions'
 import Link from 'next/link'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -100,11 +101,26 @@ export function Header({
   const typeIcon: Record<string, string> = {
     task_assigned: '📋',
     task_completed: '✅',
+    task_pending_review: '⏳',
+    task_approved: '✓',
+    task_rejected: '↩️',
     contract_alert: '📄',
     content_approved: '🎉',
     content_rejected: '❌',
     system: '🔔',
     default: '📢'
+  }
+
+  // Optimistically remove notifications from the dropdown when admin acts on
+  // them, so they disappear immediately. The server action does the heavy
+  // lifting (DB update + revalidation).
+  const handleApprove = async (taskId: string, notifId: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId))
+    try { await approveTaskCompletion(taskId, 'task') } catch (e) { console.error(e) }
+  }
+  const handleReject = async (taskId: string, notifId: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId))
+    try { await rejectTaskCompletion(taskId, 'task') } catch (e) { console.error(e) }
   }
 
   const timeAgo = (dateStr: string) => {
@@ -226,8 +242,27 @@ export function Header({
                       </p>
                       <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5 line-clamp-2">{n.message}</p>
                       <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1">{timeAgo(n.created_at)}</p>
+
+                      {/* Approve / Reject right inside the dropdown for
+                          task_pending_review notifications */}
+                      {!n.is_read && n.type === 'task_pending_review' && n.related_id && (
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            onClick={() => handleApprove(n.related_id as string, n.id)}
+                            className="px-3 py-1 rounded-md text-[11px] font-bold bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 flex items-center gap-1"
+                          >
+                            <Check className="h-3 w-3" /> Approve
+                          </button>
+                          <button
+                            onClick={() => handleReject(n.related_id as string, n.id)}
+                            className="px-3 py-1 rounded-md text-[11px] font-bold bg-red-500/15 text-red-600 dark:text-red-400 hover:bg-red-500 hover:text-white border border-red-500/30 flex items-center gap-1"
+                          >
+                            <X className="h-3 w-3" /> Send Back
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    {!n.is_read && (
+                    {!n.is_read && n.type !== 'task_pending_review' && (
                       <button
                         onClick={() => handleMarkRead(n.id)}
                         className="flex-shrink-0 h-5 w-5 rounded-full bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] flex items-center justify-center hover:bg-[hsl(var(--primary))] hover:text-white transition-colors"

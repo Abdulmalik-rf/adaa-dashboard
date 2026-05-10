@@ -1,12 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { Bell, Check, Trash2, CheckCheck, AlertCircle, MessageSquare, Briefcase, Zap, Search, SlidersHorizontal } from 'lucide-react'
+import { Bell, Check, Trash2, CheckCheck, AlertCircle, MessageSquare, Briefcase, Zap, Search, SlidersHorizontal, X, Clock } from 'lucide-react'
 import { markNotificationRead, markAllNotificationsRead } from '@/app/actions/notifications'
+import { approveTaskCompletion, rejectTaskCompletion } from '@/app/actions/tasks'
 
 const typeIcon: Record<string, { icon: any, color: string }> = {
   task_assigned: { icon: Briefcase, color: 'text-blue-500 bg-blue-500/10' },
   task_completed: { icon: Check, color: 'text-emerald-500 bg-emerald-500/10' },
+  task_pending_review: { icon: Clock, color: 'text-amber-500 bg-amber-500/15' },
+  task_approved: { icon: CheckCheck, color: 'text-emerald-500 bg-emerald-500/10' },
+  task_rejected: { icon: AlertCircle, color: 'text-red-500 bg-red-500/10' },
   contract_alert: { icon: AlertCircle, color: 'text-orange-500 bg-orange-500/10' },
   content_approved: { icon: Zap, color: 'text-green-500 bg-green-500/10' },
   content_rejected: { icon: AlertCircle, color: 'text-red-500 bg-red-500/10' },
@@ -132,14 +136,40 @@ function NotificationItem({ n }: { n: any }) {
         </div>
         
         {/* Actionable buttons */}
-        {!n.is_read && (
+        {!n.is_read && n.type === 'task_pending_review' && n.related_id && (
           <div className="mt-3 flex gap-2">
-             <button onClick={() => markNotificationRead(n.id)} className="btn btn-ghost btn-xs bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-sm hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))]">
-                <Check className="h-3 w-3" /> Acknowledge
-             </button>
-             <button className="btn btn-ghost btn-xs bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-sm hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))]">
-                View Details
-             </button>
+            <form action={approveTaskCompletion.bind(null, n.related_id, 'task')}>
+              <button
+                type="submit"
+                className="btn btn-xs bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-md shadow-emerald-500/20"
+              >
+                <Check className="h-3 w-3" /> Approve
+              </button>
+            </form>
+            <form action={rejectTaskCompletion.bind(null, n.related_id, 'task')}>
+              <button
+                type="submit"
+                className="btn btn-xs bg-red-500/15 hover:bg-red-500 hover:text-white text-red-600 dark:text-red-400 border border-red-500/30 shadow-sm"
+              >
+                <X className="h-3 w-3" /> Send Back
+              </button>
+            </form>
+            <button
+              onClick={() => markNotificationRead(n.id)}
+              className="btn btn-ghost btn-xs bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-sm hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))]"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+        {!n.is_read && n.type !== 'task_pending_review' && (
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => markNotificationRead(n.id)}
+              className="btn btn-ghost btn-xs bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-sm hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))]"
+            >
+              <Check className="h-3 w-3" /> Acknowledge
+            </button>
           </div>
         )}
       </div>

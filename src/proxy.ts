@@ -3,9 +3,18 @@ import { createServerClient } from '@supabase/ssr'
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase/config'
 
 const PUBLIC_PATHS = ['/login', '/auth/callback']
+// Exact-match-only public API endpoints. The chat route is exposed
+// cross-origin to the public emergize-sa.com website, so the auth
+// gate must NOT redirect anonymous browser fetches to /login —
+// the route handler enforces its own protections (origin allowlist,
+// IP rate limit, public-mode tool surface). Listed individually
+// rather than broadening to /api/agent so future routes under that
+// prefix don't accidentally inherit the bypass.
+const PUBLIC_API_PATHS_EXACT = ['/api/agent/chat']
 const USER_ALLOWED_PATHS = ['/my-dashboard', '/my-tasks', '/notifications']
 
 function isPublic(pathname: string) {
+  if (PUBLIC_API_PATHS_EXACT.includes(pathname)) return true
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))
 }
 

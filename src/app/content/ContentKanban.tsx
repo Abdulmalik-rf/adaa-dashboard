@@ -3,9 +3,26 @@
 import { useState, useMemo } from "react"
 import { Image as ImageIcon, Calendar, User as UserIcon, ArrowRight, Search, Check, X, Film, MessageSquare } from "lucide-react"
 import { updateContentScheduleStatus } from "@/app/actions/content"
-import { approveContentSubmission, rejectContentSubmission } from "@/app/actions/content-uploads"
 import { useLanguage } from "@/lib/i18n/LanguageContext"
 import { SubmitPostModal } from "./SubmitPostModal"
+
+// approve/reject route via a stable HTTP endpoint so a stale browser
+// bundle doesn't break the flow after a deploy. The server action IDs
+// change on every build; /api/content-review/:id does not.
+async function reviewContent(
+  id: string,
+  payload: { action: 'approve' | 'reject'; notes?: string },
+) {
+  const res = await fetch(`/api/content-review/${id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}))
+    throw new Error(j?.error || `HTTP ${res.status}`)
+  }
+}
 
 type Item = {
   id: string
@@ -111,7 +128,7 @@ export function ContentKanban({
     setBusy(item.id)
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, schedule_status: 'approved' } : i)))
     try {
-      await approveContentSubmission(item.id)
+      await reviewContent(item.id, { action: 'approve' })
     } catch (err: any) {
       setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, schedule_status: 'pending' } : i)))
       alert((ar ? 'فشلت الموافقة: ' : 'Approve failed: ') + (err?.message ?? 'unknown'))
@@ -124,7 +141,7 @@ export function ContentKanban({
     setBusy(item.id)
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, schedule_status: 'idea', review_notes: notes ?? i.review_notes } : i)))
     try {
-      await rejectContentSubmission(item.id, notes)
+      await reviewContent(item.id, { action: 'reject', notes })
     } catch (err: any) {
       setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, schedule_status: 'pending' } : i)))
       alert((ar ? 'فشل الرفض: ' : 'Reject failed: ') + (err?.message ?? 'unknown'))
@@ -249,14 +266,47 @@ function Card({
   const isVideo = isVideoUrl(item.media_url)
   return (
     <div className={`premium-card p-3 space-y-2 transition-opacity ${busy ? 'opacity-50' : ''}`}>
-      {/* Media preview — only when there's actually a file */}
+      {/* Media preview — only when there's actually a file. crossOrigin=
+          "anonymous" makes the request a CORS one so it works in any
+          embedder-policy regime. A click on an image opens the file in a
+          new tab so the admin can see it full-resolution before deciding. */}
       {item.media_url && (
-        <div className="rounded-lg overflow-hidden border border-[hsl(var(--border))] bg-black/5 dark:bg-black/30 max-h-40">
+        <div className="rounded-lg overflow-hidden border border-[hsl(var(--border))] bg-black/5 dark:bg-black/30">
           {isVideo ? (
-            <video src={item.media_url} controls className="w-full max-h-40 object-cover bg-black" />
+            <video
+              src={item.media_url}
+              controls
+              preload="metadata"
+              crossOrigin="anonymous"
+              className="w-full max-h-56 object-contain bg-black"
+            />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={item.media_url} alt={item.title} className="w-full max-h-40 object-cover" loading="lazy" />
+            <a href={item.media_url} target="_blank" rel="noopener noreferrer" title={ar ? 'فتح الصورة بالحجم الأصلي' : 'Open full size'}>
+              <img
+                src={item.media_url}
+                alt={item.title}
+                crossOrigin="anonymous"
+                className="w-full max-h-56 object-contain bg-black/40 cursor-zoom-in"
+                loading="lazy"
+                onError={(e) => {
+                  // If the image fails (e.g. signed URL expired, COEP issue
+                  // on an old deploy), swap to a clickable file-link so the
+                  // admin can still get to the asset.
+                  const img = e.currentTarget
+                  img.style.display = 'none'
+                  const fallback = img.parentElement?.querySelector('.media-fallback') as HTMLElement
+                  if (fallback) fallback.style.display = 'flex'
+                }}
+              />
+              <div
+                className="media-fallback hidden items-center justify-center gap-2 p-4 text-xs text-[hsl(var(--muted-foreground))]"
+                style={{ display: 'none' }}
+              >
+                <ImageIcon className="h-4 w-4" />
+                {ar ? 'تعذّر تحميل المعاينة — اضغط للفتح' : 'Preview failed to load — click to open'}
+              </div>
+            </a>
           )}
         </div>
       )}

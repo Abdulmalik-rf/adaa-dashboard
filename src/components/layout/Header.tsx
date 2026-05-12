@@ -4,7 +4,21 @@ import { Bell, Sun, Moon, ChevronDown, Check, X, Languages, LogOut } from 'lucid
 import { useState, useEffect, useRef } from 'react'
 import { markNotificationRead, markAllNotificationsRead } from '@/app/actions/notifications'
 import { approveTaskCompletion, rejectTaskCompletion } from '@/app/actions/tasks'
-import { approveContentSubmission, rejectContentSubmission } from '@/app/actions/content-uploads'
+
+// Content approve/reject routes through a stable /api/content-review/<id>
+// endpoint instead of a server action, so a stale browser bundle doesn't
+// produce "Server Action … was not found" after a deploy.
+async function reviewContent(id: string, action: 'approve' | 'reject') {
+  const res = await fetch(`/api/content-review/${id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  })
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}))
+    throw new Error(j?.error || `HTTP ${res.status}`)
+  }
+}
 import { logoutAction } from '@/app/login/actions'
 import Link from 'next/link'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -123,7 +137,7 @@ export function Header({
     setNotifications((prev) => prev.filter((n) => n.id !== notifId))
     try {
       if (notifType === 'content_pending_review') {
-        await approveContentSubmission(relatedId)
+        await reviewContent(relatedId, 'approve')
       } else {
         await approveTaskCompletion(relatedId, 'task')
       }
@@ -133,7 +147,7 @@ export function Header({
     setNotifications((prev) => prev.filter((n) => n.id !== notifId))
     try {
       if (notifType === 'content_pending_review') {
-        await rejectContentSubmission(relatedId)
+        await reviewContent(relatedId, 'reject')
       } else {
         await rejectTaskCompletion(relatedId, 'task')
       }

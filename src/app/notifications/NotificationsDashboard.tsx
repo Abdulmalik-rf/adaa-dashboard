@@ -4,7 +4,21 @@ import { useState } from 'react'
 import { Bell, Check, Trash2, CheckCheck, AlertCircle, MessageSquare, Briefcase, Zap, Search, SlidersHorizontal, X, Clock } from 'lucide-react'
 import { markNotificationRead, markAllNotificationsRead } from '@/app/actions/notifications'
 import { approveTaskCompletion, rejectTaskCompletion } from '@/app/actions/tasks'
-import { approveContentSubmission, rejectContentSubmission } from '@/app/actions/content-uploads'
+
+// Stable HTTP endpoint for content review — see /api/content-review/[id].
+// Goes via fetch rather than a server action so stale browser bundles
+// don't break the buttons after a deploy.
+async function reviewContent(id: string, action: 'approve' | 'reject') {
+  const res = await fetch(`/api/content-review/${id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  })
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}))
+    throw new Error(j?.error || `HTTP ${res.status}`)
+  }
+}
 
 const typeIcon: Record<string, { icon: any, color: string }> = {
   task_assigned: { icon: Briefcase, color: 'text-blue-500 bg-blue-500/10' },
@@ -137,34 +151,47 @@ function NotificationItem({ n }: { n: any }) {
           </div>
         </div>
         
-        {/* Actionable buttons — same UI handles tasks AND content submissions,
-            routes by notification.type to the right server action. */}
+        {/* Actionable buttons — content review uses the stable /api route
+            so stale browser bundles still work after a deploy; tasks
+            still go through their existing server action. */}
         {!n.is_read && (n.type === 'task_pending_review' || n.type === 'content_pending_review') && n.related_id && (
           <div className="mt-3 flex gap-2">
-            <form action={
-              n.type === 'content_pending_review'
-                ? approveContentSubmission.bind(null, n.related_id)
-                : approveTaskCompletion.bind(null, n.related_id, 'task')
-            }>
+            {n.type === 'content_pending_review' ? (
               <button
-                type="submit"
+                type="button"
+                onClick={async () => { try { await reviewContent(n.related_id!, 'approve'); window.location.reload() } catch (e: any) { alert(e?.message || 'Failed') } }}
                 className="btn btn-xs bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-md shadow-emerald-500/20"
               >
                 <Check className="h-3 w-3" /> Approve
               </button>
-            </form>
-            <form action={
-              n.type === 'content_pending_review'
-                ? rejectContentSubmission.bind(null, n.related_id, undefined as any)
-                : rejectTaskCompletion.bind(null, n.related_id, 'task')
-            }>
+            ) : (
+              <form action={approveTaskCompletion.bind(null, n.related_id, 'task')}>
+                <button
+                  type="submit"
+                  className="btn btn-xs bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-md shadow-emerald-500/20"
+                >
+                  <Check className="h-3 w-3" /> Approve
+                </button>
+              </form>
+            )}
+            {n.type === 'content_pending_review' ? (
               <button
-                type="submit"
+                type="button"
+                onClick={async () => { try { await reviewContent(n.related_id!, 'reject'); window.location.reload() } catch (e: any) { alert(e?.message || 'Failed') } }}
                 className="btn btn-xs bg-red-500/15 hover:bg-red-500 hover:text-white text-red-600 dark:text-red-400 border border-red-500/30 shadow-sm"
               >
                 <X className="h-3 w-3" /> Send Back
               </button>
-            </form>
+            ) : (
+              <form action={rejectTaskCompletion.bind(null, n.related_id, 'task')}>
+                <button
+                  type="submit"
+                  className="btn btn-xs bg-red-500/15 hover:bg-red-500 hover:text-white text-red-600 dark:text-red-400 border border-red-500/30 shadow-sm"
+                >
+                  <X className="h-3 w-3" /> Send Back
+                </button>
+              </form>
+            )}
             <button
               onClick={() => markNotificationRead(n.id)}
               className="btn btn-ghost btn-xs bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-sm hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))]"

@@ -8,16 +8,16 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '50mb',
     },
   },
+  // COEP was previously set to `require-corp` which blocked any cross-origin
+  // <img>/<video> that didn't explicitly opt-in via CORP — including every
+  // file in the `content-uploads` Supabase Storage bucket. The kanban
+  // rendered the "media" chip but the preview was a broken image because of
+  // this header. We don't depend on crossOriginIsolated features
+  // (SharedArrayBuffer, performance.measureUserAgentSpecificMemory…), so
+  // dropping COEP is the cleanest fix. COOP is dropped too since it only
+  // gains meaning alongside COEP.
   async headers() {
-    return [
-      {
-        source: '/(.*)',
-        headers: [
-          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
-          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-        ],
-      },
-    ];
+    return []
   },
 };
 

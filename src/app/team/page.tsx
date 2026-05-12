@@ -2,7 +2,7 @@ import { supabaseClient } from "@/lib/supabase/client"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Plus, Settings, Trash2, Mail, Phone, Shield, Users } from "lucide-react"
+import { Plus, Trash2, Mail, Phone, Shield, Users } from "lucide-react"
 import { getDictionary } from "@/lib/i18n"
 import { AddTeamMemberModal } from "./AddTeamMemberModal"
 import { MemberLoginActions } from "./MemberLoginActions"
@@ -103,13 +103,15 @@ export default async function TeamPage() {
                       memberName={member.full_name}
                     />
                     <form action={deleteTeamMember.bind(null, member.id)}>
-                       <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-500">
+                       <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-gray-400 hover:text-red-500"
+                          title="Delete team member"
+                       >
                           <Trash2 className="h-4 w-4" />
                        </Button>
                     </form>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                       <Settings className="h-4 w-4 text-gray-400" />
-                    </Button>
                   </div>
                 </TableCell>
               </TableRow>

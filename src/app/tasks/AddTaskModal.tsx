@@ -5,11 +5,38 @@ import { Plus, X, ListTodo, Calendar, User, Building, AlertCircle } from 'lucide
 import { createTask } from '@/app/actions/tasks'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
-export function AddTaskModal({ teamMembers, clients }: { teamMembers: any[], clients: any[] }) {
+type Trigger = 'default' | 'compact'
+
+export function AddTaskModal({
+  teamMembers,
+  clients,
+  defaultStatus = 'todo',
+  trigger = 'default',
+}: {
+  teamMembers: any[]
+  clients: any[]
+  defaultStatus?: string
+  trigger?: Trigger
+}) {
   const { dir } = useLanguage()
   const [isOpen, setIsOpen] = useState(false)
 
   if (!isOpen) {
+    if (trigger === 'compact') {
+      // Used by per-column "Quick Add" buttons on the kanban board.
+      // Pre-selects the column's status so the new task lands there.
+      return (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="group mt-2 w-full border border-dashed border-[hsl(var(--border))] py-3 rounded-2xl flex items-center justify-center gap-2 hover:bg-[hsl(var(--primary)/0.05)] hover:border-[hsl(var(--primary)/0.3)] transition-all"
+        >
+          <Plus className="h-4 w-4 text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--primary))]" />
+          <span className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--primary))] uppercase tracking-widest">
+            {dir === 'rtl' ? 'إضافة سريعة' : 'Quick Add'}
+          </span>
+        </button>
+      )
+    }
     return (
       <button onClick={() => setIsOpen(true)} className="btn btn-primary">
         <Plus className="h-4 w-4" /> {dir === 'rtl' ? 'إضافة مهمة' : 'Add Task'}
@@ -87,7 +114,7 @@ export function AddTaskModal({ teamMembers, clients }: { teamMembers: any[], cli
              </div>
           </div>
 
-          <input type="hidden" name="status" value="todo" />
+          <input type="hidden" name="status" value={defaultStatus} />
 
           <div className="pt-4 flex gap-3">
             <button type="button" onClick={() => setIsOpen(false)} className="btn btn-secondary flex-1">

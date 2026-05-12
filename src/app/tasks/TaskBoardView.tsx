@@ -366,13 +366,13 @@ export function TaskBoardView({ tasks: initialTasks, teamMembers, clients }: Tas
                  )}
               </div>
 
-              {/* Add Quick Task in Column */}
-              <button className="group mt-2 border border-dashed border-[hsl(var(--border))] py-3 rounded-2xl flex items-center justify-center gap-2 hover:bg-[hsl(var(--primary)/0.05)] hover:border-[hsl(var(--primary)/0.3)] transition-all">
-                 <Plus className="h-4 w-4 text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--primary))]" />
-                 <span className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--primary))] uppercase tracking-widest">
-                    {dir === 'rtl' ? 'إضافة سريعة' : 'Quick Add'}
-                 </span>
-              </button>
+              {/* Add Quick Task — opens AddTaskModal with this column's status pre-selected */}
+              <AddTaskModal
+                teamMembers={teamMembers}
+                clients={clients}
+                defaultStatus={status}
+                trigger="compact"
+              />
             </div>
           )
         })}

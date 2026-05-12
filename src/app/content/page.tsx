@@ -1,4 +1,5 @@
 import { supabaseClient } from "@/lib/supabase/client"
+import { getCurrentUser } from "@/lib/supabase/server"
 import { ContentKanban } from "./ContentKanban"
 
 export const revalidate = 30
@@ -9,6 +10,9 @@ export const revalidate = 30
 // card. content_items.schedule_status is the source of truth.
 
 export default async function ContentPage() {
+  const me = await getCurrentUser()
+  const isAdmin = me?.profile?.role === 'admin'
+
   const [
     { data: contentItems },
     { data: clients },
@@ -24,6 +28,7 @@ export default async function ContentPage() {
       items={contentItems || []}
       clients={clients || []}
       teamMembers={teamMembers || []}
+      isAdmin={isAdmin}
     />
   )
 }

@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Lets the content-submission form push images/video through the
+  // server action without hitting the default 1MB cap.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
+  },
   async headers() {
     return [
       {

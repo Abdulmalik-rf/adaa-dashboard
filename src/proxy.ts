@@ -11,7 +11,27 @@ const PUBLIC_PATHS = ['/login', '/auth/callback']
 // rather than broadening to /api/agent so future routes under that
 // prefix don't accidentally inherit the bypass.
 const PUBLIC_API_PATHS_EXACT = ['/api/agent/chat']
-const USER_ALLOWED_PATHS = ['/my-dashboard', '/my-tasks', '/notifications']
+// Non-admins can hit:
+//   /my-dashboard, /my-tasks, /notifications — their personal surfaces
+//   /content                                 — to submit posts for admin review
+//   /reports, /calendar, /files, /campaigns,
+//   /reminders, /settings                    — shared surfaces (read-mostly for staff)
+// The content page itself hides admin-only approve/reject buttons when
+// the viewer isn't an admin, so this is safe to open up. The same pattern
+// is expected for the other shared surfaces — render admin actions
+// conditionally on the page itself.
+const USER_ALLOWED_PATHS = [
+  '/my-dashboard',
+  '/my-tasks',
+  '/notifications',
+  '/content',
+  '/reports',
+  '/calendar',
+  '/files',
+  '/campaigns',
+  '/reminders',
+  '/settings',
+]
 
 function isPublic(pathname: string) {
   if (PUBLIC_API_PATHS_EXACT.includes(pathname)) return true

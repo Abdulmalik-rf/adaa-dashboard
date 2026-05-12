@@ -1,9 +1,10 @@
 'use client'
 
-import { Bell, Search, Sun, Moon, ChevronDown, Check, X, Languages, LogOut } from 'lucide-react'
+import { Bell, Sun, Moon, ChevronDown, Check, X, Languages, LogOut } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { markNotificationRead, markAllNotificationsRead } from '@/app/actions/notifications'
 import { approveTaskCompletion, rejectTaskCompletion } from '@/app/actions/tasks'
+import { approveContentSubmission, rejectContentSubmission } from '@/app/actions/content-uploads'
 import { logoutAction } from '@/app/login/actions'
 import Link from 'next/link'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -42,7 +43,9 @@ export function Header({
   const userRef = useRef<HTMLDivElement>(null)
 
   const displayName = currentUser?.profile?.full_name || currentUser?.email?.split('@')[0] || 'User'
-  const displayRole = currentUser?.profile?.role === 'admin' ? 'Admin' : 'User'
+  const displayRole = currentUser?.profile?.role === 'admin'
+    ? ((t as any).admin ?? 'Admin')
+    : ((t as any).user ?? 'User')
   const initials = displayName
     .split(' ')
     .map((p) => p[0])
@@ -105,6 +108,7 @@ export function Header({
     task_approved: '✓',
     task_rejected: '↩️',
     contract_alert: '📄',
+    content_pending_review: '🖼️',
     content_approved: '🎉',
     content_rejected: '❌',
     system: '🔔',
@@ -113,14 +117,27 @@ export function Header({
 
   // Optimistically remove notifications from the dropdown when admin acts on
   // them, so they disappear immediately. The server action does the heavy
-  // lifting (DB update + revalidation).
-  const handleApprove = async (taskId: string, notifId: string) => {
+  // lifting (DB update + revalidation). Routes to the right action based on
+  // notification.type so the same buttons work for tasks AND content posts.
+  const handleApprove = async (relatedId: string, notifId: string, notifType: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== notifId))
-    try { await approveTaskCompletion(taskId, 'task') } catch (e) { console.error(e) }
+    try {
+      if (notifType === 'content_pending_review') {
+        await approveContentSubmission(relatedId)
+      } else {
+        await approveTaskCompletion(relatedId, 'task')
+      }
+    } catch (e) { console.error(e) }
   }
-  const handleReject = async (taskId: string, notifId: string) => {
+  const handleReject = async (relatedId: string, notifId: string, notifType: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== notifId))
-    try { await rejectTaskCompletion(taskId, 'task') } catch (e) { console.error(e) }
+    try {
+      if (notifType === 'content_pending_review') {
+        await rejectContentSubmission(relatedId)
+      } else {
+        await rejectTaskCompletion(relatedId, 'task')
+      }
+    } catch (e) { console.error(e) }
   }
 
   const timeAgo = (dateStr: string) => {
@@ -135,19 +152,9 @@ export function Header({
 
   return (
     <header className="h-16 flex items-center justify-between px-6 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))] flex-shrink-0 sticky top-0 z-30">
-      {/* Left: Search — submits to /search?q=... */}
-      <form action="/search" method="GET" className="relative max-w-sm w-full hidden md:block">
-        <Search className={`absolute ${dir === 'rtl' ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 h-4 w-4 text-[hsl(var(--muted-foreground))]`} />
-        <input
-          name="q"
-          placeholder={t.search}
-          autoComplete="off"
-          className={`form-input h-9 text-sm bg-[hsl(var(--muted)/0.4)] border-transparent focus:border-[hsl(var(--primary))] focus:bg-[hsl(var(--card))] ${dir === 'rtl' ? 'pr-10 pl-3' : 'pl-10 pr-3'}`}
-        />
-      </form>
 
-      {/* Right: Actions */}
-      <div className="flex items-center gap-2 mr-0 ml-auto" style={{ marginRight: dir === 'rtl' ? 'auto' : 0, marginLeft: dir === 'rtl' ? 0 : 'auto' }}>
+      {/* Right (or left in RTL): Actions — anchored to the inline-end of the header */}
+      <div className="flex items-center gap-2 ms-auto">
         
         {/* Language switcher */}
         <div className="relative" ref={langRef}>
@@ -202,11 +209,11 @@ export function Header({
 
           {/* Notification Panel */}
           {notifOpen && (
-            <div className="absolute right-0 top-full mt-2 w-96 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl shadow-black/10 z-50 animate-slide-up overflow-hidden">
+            <div className={`absolute ${dir === 'rtl' ? 'left-0' : 'right-0'} top-full mt-2 w-[min(24rem,calc(100vw-2rem))] max-w-sm bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl shadow-black/10 z-50 animate-slide-up overflow-hidden`}>
               <div className="flex items-center justify-between p-4 border-b border-[hsl(var(--border))]">
                 <div>
-                  <h3 className="font-semibold text-sm">Notifications</h3>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">{unreadCount} unread</p>
+                  <h3 className="font-semibold text-sm">{t.notifications}</h3>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">{unreadCount} {(t as any).unread ?? 'unread'}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {unreadCount > 0 && (
@@ -214,7 +221,7 @@ export function Header({
                       onClick={handleMarkAllRead}
                       className="text-xs text-[hsl(var(--primary))] font-medium hover:underline"
                     >
-                      Mark all read
+                      {t.markAllRead}
                     </button>
                   )}
                   <button onClick={() => setNotifOpen(false)} className="btn btn-ghost btn-icon h-7 w-7">
@@ -227,7 +234,7 @@ export function Header({
                 {notifications.length === 0 && (
                   <div className="p-8 text-center text-sm text-[hsl(var(--muted-foreground))]">
                     <Bell className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    No notifications
+                    {t.noNotifications}
                   </div>
                 )}
                 {notifications.map((n) => (
@@ -244,25 +251,25 @@ export function Header({
                       <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1">{timeAgo(n.created_at)}</p>
 
                       {/* Approve / Reject right inside the dropdown for
-                          task_pending_review notifications */}
-                      {!n.is_read && n.type === 'task_pending_review' && n.related_id && (
+                          any *_pending_review notification (tasks + content). */}
+                      {!n.is_read && (n.type === 'task_pending_review' || n.type === 'content_pending_review') && n.related_id && (
                         <div className="flex gap-2 mt-2">
                           <button
-                            onClick={() => handleApprove(n.related_id as string, n.id)}
+                            onClick={() => handleApprove(n.related_id as string, n.id, n.type)}
                             className="px-3 py-1 rounded-md text-[11px] font-bold bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 flex items-center gap-1"
                           >
-                            <Check className="h-3 w-3" /> Approve
+                            <Check className="h-3 w-3" /> {(t as any).approve ?? 'Approve'}
                           </button>
                           <button
-                            onClick={() => handleReject(n.related_id as string, n.id)}
+                            onClick={() => handleReject(n.related_id as string, n.id, n.type)}
                             className="px-3 py-1 rounded-md text-[11px] font-bold bg-red-500/15 text-red-600 dark:text-red-400 hover:bg-red-500 hover:text-white border border-red-500/30 flex items-center gap-1"
                           >
-                            <X className="h-3 w-3" /> Send Back
+                            <X className="h-3 w-3" /> {(t as any).sendBack ?? 'Send Back'}
                           </button>
                         </div>
                       )}
                     </div>
-                    {!n.is_read && n.type !== 'task_pending_review' && (
+                    {!n.is_read && n.type !== 'task_pending_review' && n.type !== 'content_pending_review' && (
                       <button
                         onClick={() => handleMarkRead(n.id)}
                         className="flex-shrink-0 h-5 w-5 rounded-full bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] flex items-center justify-center hover:bg-[hsl(var(--primary))] hover:text-white transition-colors"
@@ -281,7 +288,7 @@ export function Header({
                   onClick={() => setNotifOpen(false)}
                   className="block text-center text-xs font-semibold text-[hsl(var(--primary))] hover:underline"
                 >
-                  View all notifications →
+                  {(t as any).viewAllNotifications ?? 'View all notifications →'}
                 </Link>
               </div>
             </div>
@@ -305,7 +312,7 @@ export function Header({
           </button>
 
           {userOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl shadow-lg z-50 overflow-hidden">
+            <div className={`absolute ${dir === 'rtl' ? 'left-0' : 'right-0'} top-full mt-2 w-56 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl shadow-lg z-50 overflow-hidden`}>
               <div className="px-4 py-3 border-b border-[hsl(var(--border))]">
                 <p className="text-sm font-semibold text-[hsl(var(--foreground))] truncate">{displayName}</p>
                 <p className="text-[11px] text-[hsl(var(--muted-foreground))] truncate">{currentUser?.email}</p>
@@ -316,7 +323,7 @@ export function Header({
                   className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
                 >
                   <LogOut className="h-4 w-4" />
-                  Sign out
+                  {t.logout}
                 </button>
               </form>
             </div>

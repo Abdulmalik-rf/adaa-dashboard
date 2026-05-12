@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Bell, Check, Trash2, CheckCheck, AlertCircle, MessageSquare, Briefcase, Zap, Search, SlidersHorizontal, X, Clock } from 'lucide-react'
 import { markNotificationRead, markAllNotificationsRead } from '@/app/actions/notifications'
 import { approveTaskCompletion, rejectTaskCompletion } from '@/app/actions/tasks'
+import { approveContentSubmission, rejectContentSubmission } from '@/app/actions/content-uploads'
 
 const typeIcon: Record<string, { icon: any, color: string }> = {
   task_assigned: { icon: Briefcase, color: 'text-blue-500 bg-blue-500/10' },
@@ -12,6 +13,7 @@ const typeIcon: Record<string, { icon: any, color: string }> = {
   task_approved: { icon: CheckCheck, color: 'text-emerald-500 bg-emerald-500/10' },
   task_rejected: { icon: AlertCircle, color: 'text-red-500 bg-red-500/10' },
   contract_alert: { icon: AlertCircle, color: 'text-orange-500 bg-orange-500/10' },
+  content_pending_review: { icon: Clock, color: 'text-amber-500 bg-amber-500/15' },
   content_approved: { icon: Zap, color: 'text-green-500 bg-green-500/10' },
   content_rejected: { icon: AlertCircle, color: 'text-red-500 bg-red-500/10' },
   message: { icon: MessageSquare, color: 'text-purple-500 bg-purple-500/10' },
@@ -135,10 +137,15 @@ function NotificationItem({ n }: { n: any }) {
           </div>
         </div>
         
-        {/* Actionable buttons */}
-        {!n.is_read && n.type === 'task_pending_review' && n.related_id && (
+        {/* Actionable buttons — same UI handles tasks AND content submissions,
+            routes by notification.type to the right server action. */}
+        {!n.is_read && (n.type === 'task_pending_review' || n.type === 'content_pending_review') && n.related_id && (
           <div className="mt-3 flex gap-2">
-            <form action={approveTaskCompletion.bind(null, n.related_id, 'task')}>
+            <form action={
+              n.type === 'content_pending_review'
+                ? approveContentSubmission.bind(null, n.related_id)
+                : approveTaskCompletion.bind(null, n.related_id, 'task')
+            }>
               <button
                 type="submit"
                 className="btn btn-xs bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-md shadow-emerald-500/20"
@@ -146,7 +153,11 @@ function NotificationItem({ n }: { n: any }) {
                 <Check className="h-3 w-3" /> Approve
               </button>
             </form>
-            <form action={rejectTaskCompletion.bind(null, n.related_id, 'task')}>
+            <form action={
+              n.type === 'content_pending_review'
+                ? rejectContentSubmission.bind(null, n.related_id, undefined as any)
+                : rejectTaskCompletion.bind(null, n.related_id, 'task')
+            }>
               <button
                 type="submit"
                 className="btn btn-xs bg-red-500/15 hover:bg-red-500 hover:text-white text-red-600 dark:text-red-400 border border-red-500/30 shadow-sm"
@@ -162,7 +173,7 @@ function NotificationItem({ n }: { n: any }) {
             </button>
           </div>
         )}
-        {!n.is_read && n.type !== 'task_pending_review' && (
+        {!n.is_read && n.type !== 'task_pending_review' && n.type !== 'content_pending_review' && (
           <div className="mt-3 flex gap-2">
             <button
               onClick={() => markNotificationRead(n.id)}

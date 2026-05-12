@@ -4,7 +4,7 @@ import Link from "next/link"
 import { deleteClient } from "@/app/actions/clients"
 import { Trash2, ArrowUpRight, Building2, Phone, Mail } from "lucide-react"
 
-export const revalidate = 0
+export const revalidate = 60
 
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
   const { q, status } = await searchParams

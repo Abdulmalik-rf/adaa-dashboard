@@ -1,7 +1,7 @@
 import { supabaseClient } from "@/lib/supabase/client"
 import { FinanceContent } from "./FinanceContent"
 
-export const revalidate = 0
+export const revalidate = 30
 
 export default async function FinancePage() {
   const [

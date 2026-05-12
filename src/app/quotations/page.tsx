@@ -3,7 +3,7 @@ import { supabaseClient } from '@/lib/supabase/client'
 import { FileText, Plus, ArrowUpRight, Trash2 } from 'lucide-react'
 import { deleteQuotation } from '@/app/actions/quotations'
 
-export const revalidate = 0
+export const revalidate = 30
 
 function fmt(n: number) {
   return n.toLocaleString('en-US')

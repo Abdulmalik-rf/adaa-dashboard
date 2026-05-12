@@ -3,7 +3,7 @@ import { supabaseClient } from "@/lib/supabase/client"
 import { getCurrentUser } from "@/lib/supabase/server"
 import { DashboardClient } from "./DashboardClient"
 
-export const revalidate = 0
+export const revalidate = 30
 
 export default async function DashboardHome() {
   // Non-admins land on their personalized /my-dashboard. The executive

@@ -3,7 +3,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
-export const revalidate = 0
+export const revalidate = 30
 
 import { AddCampaignModal } from "./AddCampaignModal"
 import { deleteCampaign } from "@/app/actions/campaigns"

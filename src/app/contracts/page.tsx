@@ -1,7 +1,7 @@
 import { supabaseClient } from "@/lib/supabase/client"
 import { ContractsClient } from "./ContractsClient"
 
-export const revalidate = 0
+export const revalidate = 30
 
 export default async function ContractsPage() {
   const [{ data: contracts }, { data: clients }] = await Promise.all([

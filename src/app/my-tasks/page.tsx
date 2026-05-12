@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/supabase/server"
 import { markTaskCompleted } from "@/app/actions/tasks"
 import { CheckCircle2, Clock, Circle, ArrowRight } from "lucide-react"
 
-export const revalidate = 0
+export const revalidate = 30
 
 export default async function MyTasksPage() {
   const user = await getCurrentUser()

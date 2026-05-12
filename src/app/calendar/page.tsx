@@ -2,7 +2,7 @@ import { supabaseClient } from "@/lib/supabase/client"
 import { getCurrentUser } from "@/lib/supabase/server"
 import { CalendarClient } from "./CalendarClient"
 
-export const revalidate = 0
+export const revalidate = 30
 
 // Aggregates every date-bearing entity in the dashboard into a single
 // month-grid view: tasks (due_date), reminders (due_date), content_items

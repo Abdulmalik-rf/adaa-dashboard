@@ -5,7 +5,7 @@ import { FileBarChart2, ArrowUpRight, Calendar, Plus, Trash2 } from 'lucide-reac
 import { deleteReport } from '@/app/actions/reports'
 import { createReport } from '@/app/actions/reports'
 
-export const revalidate = 0
+export const revalidate = 30
 
 function fmtDate(val: string | null) {
   if (!val) return '—'

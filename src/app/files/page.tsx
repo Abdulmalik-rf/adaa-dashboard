@@ -1,7 +1,7 @@
 import { supabaseClient } from "@/lib/supabase/client"
 import { FilesClient } from "./FilesClient"
 
-export const revalidate = 0
+export const revalidate = 30
 
 export default async function FilesPage() {
   const [{ data: files }, { data: clients }] = await Promise.all([

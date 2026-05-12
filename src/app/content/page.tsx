@@ -1,7 +1,7 @@
 import { supabaseClient } from "@/lib/supabase/client"
 import { ContentKanban } from "./ContentKanban"
 
-export const revalidate = 0
+export const revalidate = 30
 
 // Editorial kanban for the content_items table — five columns matching
 // the workflow stages (idea → pending → approved → scheduled → published).

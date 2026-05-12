@@ -3,7 +3,10 @@ import { supabaseClient } from "@/lib/supabase/client"
 import { getCurrentUser } from "@/lib/supabase/server"
 import { MyDashboardClient } from "./MyDashboardClient"
 
-export const revalidate = 0
+// 30s SSR cache. Mutations (markTaskCompleted, etc.) call revalidatePath()
+// so user-driven changes show immediately; this only smooths repeated
+// sidebar nav between pages within a 30s window.
+export const revalidate = 30
 
 export default async function MyDashboardPage() {
   const user = await getCurrentUser()

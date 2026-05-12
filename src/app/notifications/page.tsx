@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 import { createSupabaseServerClient, getCurrentUser } from "@/lib/supabase/server"
 import { NotificationsDashboard } from "./NotificationsDashboard"
 
-export const revalidate = 0
+export const revalidate = 30
 
 export default async function NotificationsPage() {
   const user = await getCurrentUser()

@@ -9,7 +9,7 @@ import { MemberLoginActions } from "./MemberLoginActions"
 import { deleteTeamMember } from "@/app/actions/team"
 import { TeamWorkload } from "./TeamWorkload"
 
-export const revalidate = 0
+export const revalidate = 30
 
 export default async function TeamPage() {
   const t = await getDictionary()

@@ -1,7 +1,7 @@
 import { supabaseClient } from "@/lib/supabase/client"
 import { TaskBoardView } from "./TaskBoardView"
 
-export const revalidate = 0
+export const revalidate = 30
 
 export default async function TasksPage() {
   const [

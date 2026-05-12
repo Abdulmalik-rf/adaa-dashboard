@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, FileText, Trash2, AlertTriangle, Calendar, DollarSign, Building2 } from 'lucide-react'
+import { Plus, FileText, Trash2, AlertTriangle, Calendar, DollarSign, Building2, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
 import { createContract, deleteContract } from '@/app/actions/contracts'
 
 interface Contract {
@@ -168,6 +169,13 @@ export function ContractsClient({ contracts, clients }: { contracts: Contract[];
               )}
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-[hsl(var(--border))]">
+                <Link
+                  href={`/contracts/${contract.id}`}
+                  className="btn btn-primary btn-xs"
+                  title="Open the bilingual contract document"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" /> View
+                </Link>
                 <button
                   onClick={() => handleDelete(contract.id)}
                   className="btn btn-ghost btn-xs text-red-500 hover:bg-red-50"

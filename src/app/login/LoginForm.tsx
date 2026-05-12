@@ -2,10 +2,12 @@
 
 import { useState, useTransition } from 'react'
 import { loginAction, signupAction, requestAdminVerificationCode, signupAsAdminAction } from './actions'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 type Mode = 'signin' | 'signup' | 'admin'
 
 export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
+  const { t } = useLanguage() as any
   const [mode, setMode] = useState<Mode>('signin')
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
@@ -73,9 +75,9 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
             Emerge to Dominate
           </p>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-            {mode === 'signin' && 'Sign in to your account'}
-            {mode === 'signup' && 'Create a user account'}
-            {mode === 'admin' && 'Create an admin account (verification required)'}
+            {mode === 'signin' && (t.signInToAccount ?? 'Sign in to your account')}
+            {mode === 'signup' && (t.createUserAccount ?? 'Create a user account')}
+            {mode === 'admin' && (t.createAdminAccount ?? 'Create an admin account (verification required)')}
           </p>
         </div>
 
@@ -97,7 +99,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
                   : 'text-slate-600 dark:text-slate-400'
               }`}
             >
-              Sign in
+              {t.signIn ?? 'Sign in'}
             </button>
             <button
               type="button"
@@ -108,7 +110,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
                   : 'text-slate-600 dark:text-slate-400'
               }`}
             >
-              Sign up
+              {t.signUp ?? 'Sign up'}
             </button>
             <button
               type="button"
@@ -122,7 +124,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
-              Admin
+              {t.admin ?? 'Admin'}
             </button>
           </div>
 
@@ -137,12 +139,12 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
             {(mode === 'signup' || mode === 'admin') && (
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Full name
+                  {t.fullName ?? 'Full name'}
                 </label>
                 <input
                   type="text"
                   name="full_name"
-                  placeholder="Jane Doe"
+                  placeholder={t.fullName ?? 'Jane Doe'}
                   className="w-full h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-lime-500"
                 />
               </div>
@@ -150,7 +152,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
 
             <div>
               <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Email
+                {t.email ?? 'Email'}
               </label>
               <input
                 type="email"
@@ -172,14 +174,14 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
                 disabled={requestingCode || !adminEmailDraft}
                 className="w-full h-10 rounded-lg bg-amber-500 text-white text-sm font-semibold shadow hover:bg-amber-600 transition disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {requestingCode ? 'Sending code…' : 'Send Verification Code'}
+                {requestingCode ? '…' : (t.sendVerificationCode ?? 'Send Verification Code')}
               </button>
             )}
 
             {(mode === 'signin' || mode === 'signup' || (mode === 'admin' && codeSent)) && (
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Password
+                  {t.password ?? 'Password'}
                 </label>
                 <input
                   type="password"
@@ -196,7 +198,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
             {mode === 'admin' && codeSent && (
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Verification code (6 digits)
+                  {t.verificationCode ?? 'Verification code (6 digits)'}
                 </label>
                 <input
                   type="text"
@@ -214,7 +216,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
                   disabled={requestingCode}
                   className="mt-1 text-xs text-lime-600 dark:text-lime-400 hover:underline disabled:opacity-60"
                 >
-                  {requestingCode ? 'Resending…' : 'Resend code'}
+                  {requestingCode ? '…' : (t.resendCode ?? 'Resend code')}
                 </button>
               </div>
             )}
@@ -239,12 +241,12 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
                 className="w-full h-10 rounded-lg bg-gradient-to-r from-lime-400 to-zinc-900 text-zinc-900 text-sm font-semibold shadow hover:shadow-md transition disabled:opacity-60"
               >
                 {isPending
-                  ? 'Please wait…'
+                  ? '…'
                   : mode === 'signin'
-                    ? 'Sign in'
+                    ? (t.signIn ?? 'Sign in')
                     : mode === 'admin'
-                      ? 'Create Admin Account'
-                      : 'Create account'}
+                      ? (t.createAdminAccountBtn ?? 'Create Admin Account')
+                      : (t.signUp ?? 'Create account')}
               </button>
             )}
           </form>

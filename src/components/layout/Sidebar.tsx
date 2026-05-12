@@ -30,12 +30,12 @@ export function Sidebar({ isAdmin = false, currentUser }: { isAdmin?: boolean; c
   const roleRaw = currentUser?.profile?.role || (isAdmin ? 'admin' : 'user')
   const displayRole =
     roleRaw === 'admin'
-      ? 'Admin'
+      ? ((t as any).roleAdmin ?? 'Admin')
       : roleRaw === 'manager'
-        ? 'Manager'
+        ? ((t as any).roleManager ?? 'Manager')
         : roleRaw === 'staff'
-          ? 'Staff'
-          : 'User'
+          ? ((t as any).roleStaff ?? 'Staff')
+          : ((t as any).roleUser ?? 'User')
   const initials =
     displayName
       .split(/\s+/)
@@ -65,8 +65,8 @@ export function Sidebar({ isAdmin = false, currentUser }: { isAdmin?: boolean; c
   const navBottom = [
     { name: t.team, href: '/team', icon: Users, adminOnly: true },
     { name: t.contracts, href: '/contracts', icon: FileText, adminOnly: true },
-    { name: 'Quotations', href: '/quotations', icon: FileText, adminOnly: true },
-    { name: 'Weekly Reports', href: '/reports', icon: FileBarChart2 },
+    { name: (t as any).quotationsManagement ?? 'Quotations', href: '/quotations', icon: FileText, adminOnly: true },
+    { name: (t as any).weeklyReports ?? 'Weekly Reports', href: '/reports', icon: FileBarChart2 },
     { name: 'Calendar', href: '/calendar', icon: CalendarDays },
     { name: 'Content', href: '/content', icon: ImageIcon },
     { name: t.files, href: '/files', icon: Folder },

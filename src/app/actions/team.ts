@@ -131,39 +131,44 @@ export async function updateTeamMember(id: string, updates: any) {
   revalidatePath('/team')
 }
 
-export async function deleteTeamMember(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  // Admin gate — only admins can delete team members
-  const me = await getCurrentUser()
-  if (!me || me.profile?.role !== 'admin') {
-    return { ok: false, error: 'Only admins can delete team members.' }
+export async function deleteTeamMember(id: string): Promise<void> {
+  try {
+    // Admin gate — only admins can delete team members
+    const me = await getCurrentUser()
+    if (!me || me.profile?.role !== 'admin') {
+      console.error('[deleteTeamMember] denied: not admin')
+      return
+    }
+
+    // Service-role client so RLS / FK / auth-user cleanup all work reliably
+    const supa = agentSupabase()
+
+    // 1. Look up the member's linked auth user_id (if any) before deleting
+    const { data: member } = await (supa as any)
+      .from('team_members')
+      .select('user_id, full_name')
+      .eq('id', id)
+      .maybeSingle()
+
+    // 2. Delete the team_members row first
+    const { error: delErr } = await (supa as any).from('team_members').delete().eq('id', id)
+    if (delErr) {
+      console.error('[deleteTeamMember] db error:', delErr.message)
+      return
+    }
+
+    // 3. If member had a linked auth user, delete that auth user + profile
+    //    so they can't sign back in. Best-effort — don't fail the whole op
+    //    on cleanup errors since the team_members row is already gone.
+    if (member?.user_id) {
+      try { await supa.from('profiles').delete().eq('id', member.user_id) } catch {}
+      try { await supa.auth.admin.deleteUser(member.user_id) } catch {}
+    }
+  } catch (err: any) {
+    console.error('[deleteTeamMember] unexpected error:', err?.message ?? err)
+    return
   }
-
-  // Use service-role client so RLS / FK / auth-user cleanup all work reliably
-  const supa = agentSupabase()
-
-  // 1. Look up the member's linked auth user_id (if any) before deleting
-  const { data: member } = await (supa as any)
-    .from('team_members')
-    .select('user_id, full_name')
-    .eq('id', id)
-    .maybeSingle()
-
-  // 2. Delete the team_members row first (handles cascade for tasks, etc.)
-  const { error: delErr } = await (supa as any).from('team_members').delete().eq('id', id)
-  if (delErr) {
-    return { ok: false, error: `Could not delete member: ${delErr.message}` }
-  }
-
-  // 3. If member had a linked auth user, delete that auth user + profile too
-  //    so they can't sign back in. Don't fail the whole op if this step fails —
-  //    the team_members row is already gone.
-  if (member?.user_id) {
-    await supa.from('profiles').delete().eq('id', member.user_id).then(() => {}, () => {})
-    await supa.auth.admin.deleteUser(member.user_id).catch(() => {})
-  }
-
   revalidatePath('/team')
-  return { ok: true }
 }
 
 // Reset / re-issue a login for an existing team member. Returns the new

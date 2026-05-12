@@ -139,12 +139,32 @@ async function start() {
     }
   })
 
+  // Dedupe by msg.key.id. Baileys fires `messages.upsert` for the SAME
+  // message twice when the socket churns (disconnect → 'notify' missed →
+  // reconnect → same message re-delivered as 'append'). Without this
+  // every reply went out twice. In-memory only; LRU-evicted at 1000
+  // entries so it never grows unbounded. Resets on process restart,
+  // which is fine — baileys doesn't replay old messages from disk on
+  // a fresh boot, only on intra-session reconnects.
+  const handledIds = new Set()
+  const MAX_HANDLED_IDS = 1000
+
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     // notify = brand-new message received now
     // append = catch-up after reconnect (missed while offline) — we want these too
     if (type !== 'notify' && type !== 'append') return
 
     for (const msg of messages) {
+      const msgId = msg.key?.id
+      if (msgId) {
+        if (handledIds.has(msgId)) continue // already replied to in this process
+        handledIds.add(msgId)
+        if (handledIds.size > MAX_HANDLED_IDS) {
+          // Drop oldest (Set preserves insertion order)
+          const oldest = handledIds.values().next().value
+          handledIds.delete(oldest)
+        }
+      }
       try {
         await handleOne(sock, msg)
       } catch (err) {

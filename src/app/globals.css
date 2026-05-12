@@ -581,6 +581,24 @@ textarea.form-input {
 }
 
 /* ============================================================================
+   Dark-mode card brightness fix
+   ----------------------------------------------------------------------------
+   Many components (campaigns/page, settings/page, team/page, multiple modals,
+   ui/card, ui/table) use `dark:bg-gray-950` which is rgb(3, 7, 18) — almost
+   pure black. On the dark dashboard background this makes cards/headers/table
+   strips invisible and the content unreadable.
+   ----------------------------------------------------------------------------
+   This rule lightens them to a balanced dark gray (~#1f2937, slate-800-ish)
+   so cards stand out clearly from the page background. Single source of truth
+   instead of touching 11 files.
+   ========================================================================== */
+.dark .\[\&_\>_\*\]\:dark\:bg-gray-950,
+.dark .dark\:bg-gray-950 {
+  background-color: #1f2937 !important;        /* tailwind slate-800 */
+  border-color: #334155 !important;             /* tailwind slate-700 — visible against page bg */
+}
+
+/* ============================================================================
    Modal form contrast fix
    ----------------------------------------------------------------------------
    Several modals (AddCampaignModal, AddContractModal, AddReminderModal, etc.)

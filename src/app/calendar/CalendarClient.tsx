@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight, CalendarDays, CheckSquare, Bell,
   Image as ImageIcon, FileText, FileBarChart2, Receipt,
 } from "lucide-react"
+import { useLanguage } from "@/lib/i18n/LanguageContext"
 
 type Event = {
   id: string
@@ -19,15 +20,16 @@ type Event = {
   status?: string
 }
 
-const KIND_CONFIG: Record<Event['kind'], { label: string; color: string; icon: any }> = {
-  task:           { label: 'Tasks',         color: 'bg-blue-500',     icon: CheckSquare },
-  reminder:       { label: 'Reminders',     color: 'bg-amber-500',    icon: Bell },
-  content:        { label: 'Content',       color: 'bg-pink-500',     icon: ImageIcon },
-  contract_start: { label: 'Contract starts', color: 'bg-emerald-500', icon: FileText },
-  contract_end:   { label: 'Contract ends', color: 'bg-red-500',      icon: FileText },
-  report_period:  { label: 'Weekly reports',color: 'bg-purple-500',   icon: FileBarChart2 },
-  quote_issued:   { label: 'Quotes issued', color: 'bg-cyan-500',     icon: Receipt },
-  quote_valid:    { label: 'Quote expires', color: 'bg-orange-500',   icon: Receipt },
+type KindCfg = { label_en: string; label_ar: string; color: string; icon: any }
+const KIND_CONFIG: Record<Event['kind'], KindCfg> = {
+  task:           { label_en: 'Tasks',          label_ar: 'المهام',          color: 'bg-blue-500',    icon: CheckSquare },
+  reminder:       { label_en: 'Reminders',      label_ar: 'التذكيرات',       color: 'bg-amber-500',   icon: Bell },
+  content:        { label_en: 'Content',        label_ar: 'المحتوى',         color: 'bg-pink-500',    icon: ImageIcon },
+  contract_start: { label_en: 'Contract starts', label_ar: 'بداية العقود',   color: 'bg-emerald-500', icon: FileText },
+  contract_end:   { label_en: 'Contract ends',  label_ar: 'انتهاء العقود',   color: 'bg-red-500',     icon: FileText },
+  report_period:  { label_en: 'Weekly reports', label_ar: 'التقارير الأسبوعية', color: 'bg-purple-500', icon: FileBarChart2 },
+  quote_issued:   { label_en: 'Quotes issued',  label_ar: 'عروض الأسعار المُصدرة', color: 'bg-cyan-500', icon: Receipt },
+  quote_valid:    { label_en: 'Quote expires',  label_ar: 'انتهاء عرض السعر', color: 'bg-orange-500', icon: Receipt },
 }
 
 function ymd(d: Date) {
@@ -46,6 +48,9 @@ export function CalendarClient({
   tasks: any[]; reminders: any[]; contentItems: any[]; contracts: any[];
   reports: any[]; quotations: any[]; clients: { id: string; company_name: string }[]
 }) {
+  const { language, dir } = useLanguage()
+  const ar = language === 'ar'
+  const kindLabel = (k: Event['kind']) => ar ? KIND_CONFIG[k].label_ar : KIND_CONFIG[k].label_en
   const [cursor, setCursor] = useState(() => new Date())
   const [enabled, setEnabled] = useState<Record<Event['kind'], boolean>>({
     task: true, reminder: true, content: true,
@@ -96,7 +101,7 @@ export function CalendarClient({
         id: `rep-${r.id}`, date: r.period_end, kind: 'report_period',
         title: r.report_number, link: `/reports/${r.id}`,
         client: r.customer_company || r.customer_name, status: r.status,
-        meta: 'Period end',
+        meta: ar ? 'نهاية الفترة' : 'Period end',
       })
     }
     for (const q of quotations) {
@@ -112,7 +117,8 @@ export function CalendarClient({
       })
     }
     return out
-  }, [tasks, reminders, contentItems, contracts, reports, quotations, clients])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, reminders, contentItems, contracts, reports, quotations, clients, ar])
 
   // Build month grid: 6 rows × 7 cols, starting on Sunday.
   const grid = useMemo(() => {
@@ -153,20 +159,26 @@ export function CalendarClient({
   }, [allEvents, enabled])
 
   const today = ymd(new Date())
-  const monthLabel = cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  // Use ar-SA with latin numerals so dates remain easy to scan but the
+  // month name renders in Arabic ("مايو ٢٠٢٦" → "مايو 2026").
+  const monthLabel = cursor.toLocaleDateString(ar ? 'ar-SA-u-nu-latn' : 'en-US', { month: 'long', year: 'numeric' })
+  const weekDays = ar
+    ? ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+    : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
   return (
-    <div className="space-y-5 pb-8">
+    <div className="space-y-5 pb-8" dir={dir}>
       {/* Header */}
       <div className="section-header flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <CalendarDays className="h-6 w-6 text-[hsl(var(--primary))]" />
-            Calendar
+            {ar ? 'التقويم' : 'Calendar'}
           </h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            All scheduled tasks, reminders, content, contracts, reports and quotes in one view.
+            {ar
+              ? 'جميع المهام والتذكيرات والمحتوى والعقود والتقارير وعروض الأسعار المجدولة في عرض واحد.'
+              : 'All scheduled tasks, reminders, content, contracts, reports and quotes in one view.'}
           </p>
         </div>
 
@@ -174,24 +186,24 @@ export function CalendarClient({
           <button
             onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
             className="btn btn-ghost btn-icon"
-            title="Previous month"
+            title={ar ? 'الشهر السابق' : 'Previous month'}
           >
-            <ChevronLeft className="h-4 w-4" />
+            {ar ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
           <button
             onClick={() => setCursor(new Date())}
             className="btn btn-ghost btn-sm"
           >
-            Today
+            {ar ? 'اليوم' : 'Today'}
           </button>
           <button
             onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
             className="btn btn-ghost btn-icon"
-            title="Next month"
+            title={ar ? 'الشهر التالي' : 'Next month'}
           >
-            <ChevronRight className="h-4 w-4" />
+            {ar ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </button>
-          <h2 className="font-bold text-lg ml-2 min-w-[10ch]">{monthLabel}</h2>
+          <h2 className={`font-bold text-lg min-w-[10ch] ${ar ? 'mr-2' : 'ml-2'}`}>{monthLabel}</h2>
         </div>
       </div>
 
@@ -213,7 +225,7 @@ export function CalendarClient({
             >
               <span className={`h-2 w-2 rounded-full ${cfg.color}`} />
               <Icon className="h-3 w-3" />
-              {cfg.label}
+              {kindLabel(k)}
             </button>
           )
         })}
@@ -262,17 +274,17 @@ export function CalendarClient({
                         ['--bg' as any]: kindBg(e.kind),
                         ['--text' as any]: kindText(e.kind),
                       } as React.CSSProperties}
-                      title={`${KIND_CONFIG[e.kind].label}: ${e.title}${e.client ? ' — ' + e.client : ''}${e.meta ? ' · ' + e.meta : ''}`}
+                      title={`${kindLabel(e.kind)}: ${e.title}${e.client ? ' — ' + e.client : ''}${e.meta ? ' · ' + e.meta : ''}`}
                     >
-                      {e.meta && KIND_CONFIG[e.kind].label === 'Reminders' && (
-                        <span className="opacity-75 mr-1">{e.meta}</span>
+                      {e.meta && e.kind === 'reminder' && (
+                        <span className={`opacity-75 ${ar ? 'ml-1' : 'mr-1'}`}>{e.meta}</span>
                       )}
                       {e.title}
                     </Link>
                   ))}
                   {events.length > 3 && (
                     <p className="text-[10px] text-[hsl(var(--muted-foreground))] px-1.5">
-                      +{events.length - 3} more
+                      +{events.length - 3} {ar ? 'أخرى' : 'more'}
                     </p>
                   )}
                 </div>
@@ -285,7 +297,7 @@ export function CalendarClient({
       {/* Empty-state hint */}
       {Object.keys(eventsByDay).length === 0 && (
         <p className="text-center text-sm text-[hsl(var(--muted-foreground))] py-4">
-          Nothing scheduled in this month with the active filters.
+          {ar ? 'لا يوجد شيء مجدول في هذا الشهر مع الفلاتر النشطة.' : 'Nothing scheduled in this month with the active filters.'}
         </p>
       )}
     </div>

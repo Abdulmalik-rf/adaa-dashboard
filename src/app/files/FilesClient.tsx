@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { Upload, Folder, Trash2, Download, File, FileText, Image, Film, Search, Plus } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 const supabaseBrowserClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'your-anon-key')
 
@@ -49,6 +50,8 @@ function formatBytes(bytes: number) {
 }
 
 export function FilesClient({ files, clients }: { files: FileRecord[]; clients: { id: string; company_name: string }[] }) {
+  const { language, dir } = useLanguage()
+  const ar = language === 'ar'
   const [showUpload, setShowUpload] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [search, setSearch] = useState('')
@@ -57,7 +60,17 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
   const [formData, setFormData] = useState({ name: '', category: 'Branding', client_id: '' })
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // Categories keep their English keys (so existing DB rows match) but
+  // display in Arabic when the UI is RTL.
   const categories = ['Branding', 'Reports', 'Products', 'Contracts', 'Creative', 'Other']
+  const categoryLabel = (c: string) => {
+    if (!ar) return c
+    const map: Record<string, string> = {
+      Branding: 'هوية بصرية', Reports: 'تقارير', Products: 'منتجات',
+      Contracts: 'عقود', Creative: 'إبداعي', Other: 'أخرى',
+    }
+    return map[c] ?? c
+  }
 
   const filtered = files.filter(f => {
     const searchMatch = !search || f.name.toLowerCase().includes(search.toLowerCase())
@@ -73,7 +86,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
   const handleUpload = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!formData.name.trim() || !formData.client_id || !fileRef.current?.files?.[0]) {
-      alert('Please select a file and fill in all required fields.')
+      alert(ar ? 'يرجى اختيار ملف وملء جميع الحقول المطلوبة.' : 'Please select a file and fill in all required fields.')
       return
     }
 
@@ -91,7 +104,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
 
       if (uploadError) {
         console.error("Storage upload error:", uploadError)
-        alert('Upload failed: ' + uploadError.message)
+        alert((ar ? 'فشل الرفع: ' : 'Upload failed: ') + uploadError.message)
         return
       }
 
@@ -120,21 +133,23 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
   }
 
   const handleDelete = async (file: FileRecord) => {
-    if (!confirm(`Delete "${file.name}"? This cannot be undone.`)) return
+    if (!confirm(ar ? `حذف "${file.name}"؟ لا يمكن التراجع.` : `Delete "${file.name}"? This cannot be undone.`)) return
     await fetch(`/api/files/${file.id}`, { method: 'DELETE' })
     window.location.reload()
   }
 
   return (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-6 pb-8" dir={dir}>
       {/* Header */}
       <div className="section-header">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Files & Assets</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">Central repository for client documents and media</p>
+          <h1 className="text-2xl font-bold tracking-tight">{ar ? 'الملفات والأصول' : 'Files & Assets'}</h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
+            {ar ? 'مستودع مركزي لمستندات وملفات العملاء' : 'Central repository for client documents and media'}
+          </p>
         </div>
         <button onClick={() => setShowUpload(true)} className="btn btn-primary">
-          <Upload className="h-4 w-4" /> Upload File
+          <Upload className="h-4 w-4" /> {ar ? 'رفع ملف' : 'Upload File'}
         </button>
       </div>
 
@@ -142,34 +157,35 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
       <div className="grid grid-cols-3 gap-4">
         <div className="stat-card">
           <div className="text-2xl font-bold">{files.length}</div>
-          <div className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Total Files</div>
+          <div className="text-sm text-[hsl(var(--muted-foreground))] mt-1">{ar ? 'إجمالي الملفات' : 'Total Files'}</div>
         </div>
         <div className="stat-card">
           <div className="text-2xl font-bold">{clients.length}</div>
-          <div className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Client Folders</div>
+          <div className="text-sm text-[hsl(var(--muted-foreground))] mt-1">{ar ? 'مجلدات العملاء' : 'Client Folders'}</div>
         </div>
         <div className="stat-card">
           <div className="text-2xl font-bold">{formatBytes(totalSize)}</div>
-          <div className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Total Size</div>
+          <div className="text-sm text-[hsl(var(--muted-foreground))] mt-1">{ar ? 'الحجم الإجمالي' : 'Total Size'}</div>
         </div>
       </div>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+          <Search className={`absolute ${ar ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 h-4 w-4 text-[hsl(var(--muted-foreground))] pointer-events-none`} />
           <input
-            className="form-input pl-10" placeholder="Search files..."
+            className={`form-input ${ar ? 'pr-10 text-right' : 'pl-10'}`}
+            placeholder={ar ? 'بحث في الملفات…' : 'Search files...'}
             value={search} onChange={e => setSearch(e.target.value)}
           />
         </div>
         <select className="form-input w-auto" value={filterClient} onChange={e => setFilterClient(e.target.value)}>
-          <option value="">All Clients</option>
+          <option value="">{ar ? 'جميع العملاء' : 'All Clients'}</option>
           {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
         </select>
         <select className="form-input w-auto" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-          <option value="">All Categories</option>
-          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          <option value="">{ar ? 'جميع التصنيفات' : 'All Categories'}</option>
+          {categories.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
         </select>
       </div>
 
@@ -178,12 +194,12 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
         <table className="w-full data-table">
           <thead>
             <tr>
-              <th className="text-left">File</th>
-              <th className="text-left">Client</th>
-              <th className="text-left">Category</th>
-              <th className="text-left">Size</th>
-              <th className="text-left">Date</th>
-              <th className="text-right">Actions</th>
+              <th className={ar ? 'text-right' : 'text-left'}>{ar ? 'الملف' : 'File'}</th>
+              <th className={ar ? 'text-right' : 'text-left'}>{ar ? 'العميل' : 'Client'}</th>
+              <th className={ar ? 'text-right' : 'text-left'}>{ar ? 'التصنيف' : 'Category'}</th>
+              <th className={ar ? 'text-right' : 'text-left'}>{ar ? 'الحجم' : 'Size'}</th>
+              <th className={ar ? 'text-right' : 'text-left'}>{ar ? 'التاريخ' : 'Date'}</th>
+              <th className={ar ? 'text-left' : 'text-right'}>{ar ? 'إجراءات' : 'Actions'}</th>
             </tr>
           </thead>
           <tbody>
@@ -191,9 +207,9 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
               <tr>
                 <td colSpan={6} className="py-16 text-center">
                   <Folder className="h-12 w-12 mx-auto mb-3 opacity-20" />
-                  <p className="text-[hsl(var(--muted-foreground))]">No files found</p>
+                  <p className="text-[hsl(var(--muted-foreground))]">{ar ? 'لا توجد ملفات' : 'No files found'}</p>
                   <button onClick={() => setShowUpload(true)} className="btn btn-primary mt-4">
-                    <Upload className="h-4 w-4" /> Upload First File
+                    <Upload className="h-4 w-4" /> {ar ? 'رفع أول ملف' : 'Upload First File'}
                   </button>
                 </td>
               </tr>
@@ -219,7 +235,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                     <span className="badge badge-secondary text-[10px]">{findClient(file.client_id)}</span>
                   </td>
                   <td>
-                    <span className="text-xs font-medium text-[hsl(var(--muted-foreground))]">{file.category}</span>
+                    <span className="text-xs font-medium text-[hsl(var(--muted-foreground))]">{categoryLabel(file.category)}</span>
                   </td>
                   <td>
                     <span className="text-xs text-[hsl(var(--muted-foreground))]">{formatBytes(file.size || 0)}</span>
@@ -249,14 +265,16 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
         </table>
       </div>
 
-      {/* Upload Modal (PRO Level Context) */}
+      {/* Upload Modal */}
       {showUpload && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowUpload(false)}>
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowUpload(false)} dir={dir}>
           <div className="modal-content max-w-xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold flex items-center gap-2"><Upload className="h-5 w-5 text-[hsl(var(--primary))]" /> Advanced Media Engine</h2>
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Upload className="h-5 w-5 text-[hsl(var(--primary))]" /> {ar ? 'رفع ملف جديد' : 'Advanced Media Engine'}
+              </h2>
             </div>
-            
+
             <form onSubmit={handleUpload} className="space-y-4">
               <div className="form-group">
                 <div
@@ -280,7 +298,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                        </div>
                        <div>
                          <p className="font-bold text-lg text-emerald-700 dark:text-emerald-400">{formData.name}</p>
-                         <p className="text-xs text-emerald-600">File ready for encryption & pipeline injection</p>
+                         <p className="text-xs text-emerald-600">{ar ? 'الملف جاهز للرفع' : 'File ready for encryption & pipeline injection'}</p>
                        </div>
                      </div>
                   ) : (
@@ -288,8 +306,10 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                        <div className="h-16 w-16 bg-[hsl(var(--muted))] rounded-full flex items-center justify-center mb-3">
                          <Upload className="h-8 w-8 text-[hsl(var(--primary))]" />
                        </div>
-                       <p className="text-lg font-bold">Drag & Drop Media Element</p>
-                       <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Supports ultra-high resolution up to 4K / 2GB limits</p>
+                       <p className="text-lg font-bold">{ar ? 'اسحب وأفلت الملف هنا' : 'Drag & Drop Media Element'}</p>
+                       <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
+                         {ar ? 'يدعم دقة عالية حتى 4K / 2 جيجابايت' : 'Supports ultra-high resolution up to 4K / 2GB limits'}
+                       </p>
                      </div>
                   )}
                   <input
@@ -303,37 +323,43 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                   />
                 </div>
               </div>
-              
+
               <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] p-4 rounded-xl space-y-4 shadow-sm">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="form-group">
-                    <label className="form-label text-xs uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Client Assignment</label>
+                    <label className="form-label text-xs uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+                      {ar ? 'تعيين العميل' : 'Client Assignment'}
+                    </label>
                     <select
                       className="form-input bg-transparent font-semibold border-b-2 border-t-0 border-l-0 border-r-0 border-[hsl(var(--border))] rounded-none px-0 focus:ring-0 focus:border-[hsl(var(--primary))]"
                       value={formData.client_id}
                       onChange={e => setFormData(prev => ({ ...prev, client_id: e.target.value }))}
                       required
                     >
-                      <option value="">Link to Client DB...</option>
+                      <option value="">{ar ? 'اختر عميلاً…' : 'Link to Client DB...'}</option>
                       {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="form-label text-xs uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Asset Category</label>
+                    <label className="form-label text-xs uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+                      {ar ? 'التصنيف' : 'Asset Category'}
+                    </label>
                     <select
                       className="form-input bg-transparent font-semibold border-b-2 border-t-0 border-l-0 border-r-0 border-[hsl(var(--border))] rounded-none px-0 focus:ring-0 focus:border-[hsl(var(--primary))]"
                       value={formData.category}
                       onChange={e => setFormData(prev => ({ ...prev, category: e.target.value }))}
                     >
-                      {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                      {categories.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
                     </select>
                   </div>
                 </div>
               </div>
-              <div className="flex gap-3 justify-end pt-4">
-                <button type="button" onClick={() => setShowUpload(false)} className="btn btn-secondary px-6">Cancel</button>
+              <div className={`flex gap-3 pt-4 ${ar ? 'justify-start' : 'justify-end'}`}>
+                <button type="button" onClick={() => setShowUpload(false)} className="btn btn-secondary px-6">
+                  {ar ? 'إلغاء' : 'Cancel'}
+                </button>
                 <button type="submit" disabled={uploading || !formData.name} className="btn btn-primary px-8 shadow-xl shadow-blue-500/20">
-                  {uploading ? 'Processing...' : 'Secure Upload & Link'}
+                  {uploading ? (ar ? 'جاري الرفع…' : 'Processing...') : (ar ? 'رفع آمن وربط' : 'Secure Upload & Link')}
                 </button>
               </div>
             </form>

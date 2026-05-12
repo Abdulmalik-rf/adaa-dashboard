@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { supabaseClient } from '@/lib/supabase/client'
-import { FileText, Plus, ArrowUpRight } from 'lucide-react'
+import { FileText, Plus, ArrowUpRight, Trash2 } from 'lucide-react'
+import { deleteQuotation } from '@/app/actions/quotations'
 
 export const revalidate = 0
 
@@ -158,11 +159,25 @@ export default async function QuotationsPage({ searchParams }: { searchParams: P
                     </span>
                   </td>
                   <td className="text-right">
-                    <Link href={`/quotations/${q.id}`}>
-                      <button className="h-8 w-8 rounded-lg border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] hover:border-[hsl(var(--primary))] transition-all ml-auto">
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      </button>
-                    </Link>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Link href={`/quotations/${q.id}`}>
+                        <button
+                          className="h-8 w-8 rounded-lg border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] hover:border-[hsl(var(--primary))] transition-all"
+                          title="Open"
+                        >
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        </button>
+                      </Link>
+                      <form action={deleteQuotation.bind(null, q.id)}>
+                        <button
+                          type="submit"
+                          className="h-8 w-8 rounded-lg bg-red-500/15 text-red-600 dark:text-red-400 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all"
+                          title="Delete quotation"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               ))}

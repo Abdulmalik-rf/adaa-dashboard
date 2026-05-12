@@ -245,24 +245,24 @@ export function DashboardClient({
         </div>
       )}
 
-      {/* EXECUTIVE SUMMARY CARDS */}
+      {/* EXECUTIVE SUMMARY CARDS — each one navigates to the related section */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-blue-500">
+        <Link href="/clients" className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-blue-500 hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer">
            <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">{d.totalClients}</span><Users className="h-4 w-4 text-blue-500" /></div>
            <div className="text-3xl font-black">{activeClients.length} <span className="text-sm font-medium text-[hsl(var(--muted-foreground))] font-normal">/ {clients?.length || 0}</span></div>
-        </div>
-        <div className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-emerald-500">
+        </Link>
+        <Link href="/finance" className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-emerald-500 hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer">
            <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">{d.activeRevenue}</span><DollarSign className="h-4 w-4 text-emerald-500" /></div>
            <div className="text-3xl font-black">{monthlyRevenue.toLocaleString()} <span className="text-xs text-[hsl(var(--muted-foreground))]">SAR/mo</span></div>
-        </div>
-        <div className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-amber-500">
+        </Link>
+        <Link href="/tasks" className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-amber-500 hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer">
            <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">{d.pendingTasks}</span><Activity className="h-4 w-4 text-amber-500" /></div>
            <div className="text-3xl font-black">{pendingTasks.length} <span className="text-[10px] text-red-500 font-bold bg-red-500/10 px-2 py-0.5 rounded-full">{overdueTasks.length} overdue</span></div>
-        </div>
-        <div className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-pink-500">
+        </Link>
+        <Link href="/calendar" className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-pink-500 hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer">
            <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">{d.scheduledContent}</span><Calendar className="h-4 w-4 text-pink-500" /></div>
            <div className="text-3xl font-black">{scheduledQueued.length} <span className="text-sm text-[hsl(var(--muted-foreground))] font-normal">items</span></div>
-        </div>
+        </Link>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">

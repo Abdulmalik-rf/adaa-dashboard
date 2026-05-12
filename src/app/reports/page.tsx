@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { supabaseClient } from '@/lib/supabase/client'
-import { FileBarChart2, ArrowUpRight, Calendar, Plus } from 'lucide-react'
+import { FileBarChart2, ArrowUpRight, Calendar, Plus, Trash2 } from 'lucide-react'
+import { deleteReport } from '@/app/actions/reports'
 import { createReport } from '@/app/actions/reports'
 
 export const revalidate = 0
@@ -219,11 +220,25 @@ export default async function ReportsPage({
                       </span>
                     </td>
                     <td className="text-right">
-                      <Link href={`/reports/${r.id}`}>
-                        <button className="h-8 w-8 rounded-lg border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] hover:border-[hsl(var(--primary))] transition-all ml-auto">
-                          <ArrowUpRight className="h-3.5 w-3.5" />
-                        </button>
-                      </Link>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Link href={`/reports/${r.id}`}>
+                          <button
+                            className="h-8 w-8 rounded-lg border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] hover:border-[hsl(var(--primary))] transition-all"
+                            title="Open"
+                          >
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          </button>
+                        </Link>
+                        <form action={deleteReport.bind(null, r.id)}>
+                          <button
+                            type="submit"
+                            className="h-8 w-8 rounded-lg bg-red-500/15 text-red-600 dark:text-red-400 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all"
+                            title="Delete report"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 )

@@ -40,21 +40,58 @@ function loadUsers() {
 
 const USERS = loadUsers()
 const ALLOWED_SET = new Set()
+const ALLOWED_PHONES = new Set()             // phone-only subset, used for auto-LID-learning
 const NOTIFY_JIDS = []                       // ordered, one per user
 const SENDER_TO_NOTIFY_JID = new Map()       // any incoming-id → that user's notify JID
+const PHONE_TO_NOTIFY_JID = new Map()        // phone → the original notify JID, used when we
+                                             // auto-learn a LID and want to keep routing
+                                             // replies to the same place as the configured user
 for (const u of USERS) {
   ALLOWED_SET.add(u.phone)
+  ALLOWED_PHONES.add(u.phone)
   if (u.lid) ALLOWED_SET.add(u.lid)
   const jid = u.lid ? `${u.lid}@lid` : `${u.phone}@s.whatsapp.net`
   NOTIFY_JIDS.push(jid)
   SENDER_TO_NOTIFY_JID.set(u.phone, jid)
   if (u.lid) SENDER_TO_NOTIFY_JID.set(u.lid, jid)
+  PHONE_TO_NOTIFY_JID.set(u.phone, jid)
 }
+
+// In-memory LID auto-learn cache. When a message arrives from an unknown
+// `@lid` sender but baileys includes the actual phone number elsewhere in
+// the message (msg.key.senderPn in modern baileys), we resolve the phone
+// and — if it's in ALLOWED_PHONES — accept the message AND remember the
+// LID-to-phone mapping for the rest of the process lifetime. Avoids the
+// "paste LID into env and restart" dance every time a new user messages
+// the bot without saving its number as a contact.
+const LEARNED_LIDS = new Set()
 
 if (ALLOWED_SET.size === 0) throw new Error('Missing ALLOWED_PHONE (or ALLOWED_LID) in env')
 if (!process.env.OPENAI_CHATGPT_TOKEN) throw new Error('Missing OPENAI_CHATGPT_TOKEN in env')
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+// Best-effort: pull the sender's actual phone number out of a baileys
+// message. Different baileys versions stash it in different places; we
+// check the common ones in priority order and return the first hit as a
+// digits-only string. Returns null if no phone can be resolved (e.g. the
+// sender is purely LID-only with no backing phone exposed).
+function extractSenderPhone(msg) {
+  const candidates = [
+    msg?.key?.senderPn,            // newer baileys, 1-on-1 from non-contact
+    msg?.key?.participantPn,       // group equivalent of senderPn
+    msg?.senderPn,                 // some forks
+    msg?.participantPn,            // older fork field
+    msg?.verifiedBizName,          // not phone but worth a glance — fallthrough
+  ]
+  for (const c of candidates) {
+    if (typeof c !== 'string') continue
+    // Common forms: "966577602467", "966577602467@s.whatsapp.net", "+966 57 760 2467"
+    const digits = c.replace(/[^0-9]/g, '')
+    if (digits.length >= 8 && digits.length <= 16) return digits
+  }
+  return null
+}
 
 function extractText(msg) {
   const m = msg.message ?? {}
@@ -186,11 +223,29 @@ async function handleOne(sock, msg) {
   const sender = jid.split('@')[0]
 
   if (!ALLOWED_SET.has(sender)) {
-    // Log once per unknown sender so we can capture LIDs of newly-added users
-    // before they exist in the env. Prefix lets you grep for it. We don't
-    // reply — silent rejection is the right policy for unauthorized senders.
-    console.log(`[reject] sender=${sender} jid=${jid} (not in ALLOWED_SET)`)
-    return
+    // Before rejecting, try to learn this LID. Modern baileys exposes the
+    // sender's phone number alongside the LID for non-contact senders, in
+    // various message-shape locations depending on version. If the phone
+    // resolves to one of our configured ALLOWED_PHONES, we accept the
+    // message and cache the LID for the rest of this process lifetime.
+    // Future restarts re-learn — fine because the LID is stable per device.
+    const phoneCandidate = extractSenderPhone(msg)
+    if (phoneCandidate && ALLOWED_PHONES.has(phoneCandidate)) {
+      ALLOWED_SET.add(sender)
+      LEARNED_LIDS.add(sender)
+      // Route any future incoming-id reference for this LID back to the
+      // user's original configured notify JID, so reminders/scheduling
+      // keep working consistently.
+      const notifyJid = PHONE_TO_NOTIFY_JID.get(phoneCandidate)
+      if (notifyJid) SENDER_TO_NOTIFY_JID.set(sender, notifyJid)
+      console.log(`[learn] LID ${sender} -> phone ${phoneCandidate} (auto-learned, allowing)`)
+    } else {
+      // Log once per unknown sender so we can capture LIDs of newly-added users
+      // before they exist in the env. Prefix lets you grep for it. We don't
+      // reply — silent rejection is the right policy for unauthorized senders.
+      console.log(`[reject] sender=${sender} jid=${jid} (not in ALLOWED_SET, phoneCandidate=${phoneCandidate ?? 'unknown'})`)
+      return
+    }
   }
 
   // Reply target — the JID to send the agent's response back on. This is

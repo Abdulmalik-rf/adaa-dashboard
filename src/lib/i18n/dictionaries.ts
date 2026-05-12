@@ -93,6 +93,7 @@ export const dictionaries = {
     remindersCenter: "Reminders",
     calendarView: "Calendar",
     settingsTitle: "Settings",
+    content: "Content",
     // KPI labels
     totalClients: "Total Clients",
     activeRevenue: "Active Revenue",
@@ -278,6 +279,7 @@ export const dictionaries = {
     remindersCenter: "التذكيرات",
     calendarView: "التقويم",
     settingsTitle: "الإعدادات",
+    content: "المحتوى",
     // KPI labels
     totalClients: "إجمالي العملاء",
     activeRevenue: "الإيرادات النشطة",

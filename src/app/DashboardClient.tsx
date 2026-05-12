@@ -50,7 +50,30 @@ const DICT = {
     searchPlaceholder: "Search clients, tasks, content, contracts...",
     viewAll: "View All",
     status: "Status",
-    priority: "Priority"
+    priority: "Priority",
+    // Newly added — were hardcoded English before
+    clientsToContact: "Clients to Contact",
+    contactsCaptured: "captured, awaiting outreach",
+    contact: "contact",
+    contacts: "contacts",
+    new: "new",
+    sarPerMonth: "SAR/mo",
+    overdue: "overdue",
+    items: "items",
+    contractExpiring: "Contract Expiring",
+    action: "Action",
+    overdueTask: "Overdue Task",
+    focus: "Focus",
+    allCaughtUp: "All caught up.",
+    goToTasks: "Go to Tasks",
+    fullPortfolioReport: "Full Portfolio Report",
+    doneToday: "done today",
+    active: "active",
+    overdueExcl: "overdue!",
+    inboxZero: "Inbox Zero. All clear!",
+    contentReview: "Content Review",
+    taskReview: "Task Review",
+    noRecentActivity: "No recent activity",
   },
   ar: {
     dashboard: "لوحة القيادة التنفيذية",
@@ -89,7 +112,30 @@ const DICT = {
     searchPlaceholder: "ابحث عن عملاء، مهام، محتوى، عقود...",
     viewAll: "عرض الكل",
     status: "الحالة",
-    priority: "الأولوية"
+    priority: "الأولوية",
+    // Newly added Arabic translations
+    clientsToContact: "عملاء بانتظار التواصل",
+    contactsCaptured: "تم استلامها وتنتظر التواصل",
+    contact: "جهة اتصال",
+    contacts: "جهات اتصال",
+    new: "جديدة",
+    sarPerMonth: "ر.س/شهرياً",
+    overdue: "متأخرة",
+    items: "عنصر",
+    contractExpiring: "عقد قارب على الانتهاء",
+    action: "إجراء",
+    overdueTask: "مهمة متأخرة",
+    focus: "أولويات",
+    allCaughtUp: "كل شيء على ما يرام.",
+    goToTasks: "الذهاب إلى المهام",
+    fullPortfolioReport: "التقرير الكامل للمحفظة",
+    doneToday: "أنجزت اليوم",
+    active: "نشطة",
+    overdueExcl: "متأخرة!",
+    inboxZero: "لا توجد عناصر للمراجعة.",
+    contentReview: "مراجعة محتوى",
+    taskReview: "مراجعة مهمة",
+    noRecentActivity: "لا يوجد نشاط حديث",
   }
 }
 
@@ -207,14 +253,14 @@ export function DashboardClient({
           <div className="p-5 bg-gradient-to-r from-pink-500/5 to-transparent flex items-center justify-between">
             <div>
               <h2 className="font-bold text-lg flex items-center gap-2">
-                <UserCheck className="h-5 w-5 text-pink-500" /> Clients to Contact
+                <UserCheck className="h-5 w-5 text-pink-500" /> {d.clientsToContact}
               </h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
-                {clientsToContact.length} new {clientsToContact.length === 1 ? 'contact' : 'contacts'} captured, awaiting outreach
+                {clientsToContact.length} {d.new} {clientsToContact.length === 1 ? d.contact : d.contacts} {d.contactsCaptured}
               </p>
             </div>
             <Link href="/clients?status=to_contact" className="text-xs font-bold text-pink-600 hover:underline whitespace-nowrap">
-              View All →
+              {d.viewAll} →
             </Link>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 p-5 pt-0">
@@ -253,15 +299,15 @@ export function DashboardClient({
         </Link>
         <Link href="/finance" className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-emerald-500 hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer">
            <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">{d.activeRevenue}</span><DollarSign className="h-4 w-4 text-emerald-500" /></div>
-           <div className="text-3xl font-black">{monthlyRevenue.toLocaleString()} <span className="text-xs text-[hsl(var(--muted-foreground))]">SAR/mo</span></div>
+           <div className="text-3xl font-black">{monthlyRevenue.toLocaleString()} <span className="text-xs text-[hsl(var(--muted-foreground))]">{d.sarPerMonth}</span></div>
         </Link>
         <Link href="/tasks" className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-amber-500 hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer">
            <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">{d.pendingTasks}</span><Activity className="h-4 w-4 text-amber-500" /></div>
-           <div className="text-3xl font-black">{pendingTasks.length} <span className="text-[10px] text-red-500 font-bold bg-red-500/10 px-2 py-0.5 rounded-full">{overdueTasks.length} overdue</span></div>
+           <div className="text-3xl font-black">{pendingTasks.length} <span className="text-[10px] text-red-500 font-bold bg-red-500/10 px-2 py-0.5 rounded-full">{overdueTasks.length} {d.overdue}</span></div>
         </Link>
         <Link href="/calendar" className="premium-card p-5 bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--muted)/0.5)] border-l-4 border-l-pink-500 hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer">
            <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">{d.scheduledContent}</span><Calendar className="h-4 w-4 text-pink-500" /></div>
-           <div className="text-3xl font-black">{scheduledQueued.length} <span className="text-sm text-[hsl(var(--muted-foreground))] font-normal">items</span></div>
+           <div className="text-3xl font-black">{scheduledQueued.length} <span className="text-sm text-[hsl(var(--muted-foreground))] font-normal">{d.items}</span></div>
         </Link>
       </div>
 
@@ -288,13 +334,13 @@ export function DashboardClient({
                      <div className="flex flex-col gap-2">
                         {expiringContracts.map((c:any) => (
                            <div key={c.id} className="flex items-center justify-between p-3 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-sm">
-                             <div className="flex items-center gap-3"><AlertCircle className="h-4 w-4 text-red-600" /><span className="font-semibold text-red-900 dark:text-red-400">Contract Expiring: {c.title}</span></div>
-                             <Link href="/contracts" className="text-red-600 text-xs font-bold hover:underline">Action →</Link>
+                             <div className="flex items-center gap-3"><AlertCircle className="h-4 w-4 text-red-600" /><span className="font-semibold text-red-900 dark:text-red-400">{d.contractExpiring}: {c.title}</span></div>
+                             <Link href="/contracts" className="text-red-600 text-xs font-bold hover:underline">{d.action} →</Link>
                            </div>
                         ))}
                         {overdueTasks.slice(0,3).map((t:any) => (
                            <div key={t.id} className="flex items-center justify-between p-3 rounded-lg bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/30 text-sm">
-                             <div className="flex items-center gap-3"><Clock className="h-4 w-4 text-orange-600" /><span className="font-semibold text-orange-900 dark:text-orange-400">Overdue Task: {t.title}</span></div>
+                             <div className="flex items-center gap-3"><Clock className="h-4 w-4 text-orange-600" /><span className="font-semibold text-orange-900 dark:text-orange-400">{d.overdueTask}: {t.title}</span></div>
                              <span className="text-orange-600 text-xs font-bold">{t.due_date}</span>
                            </div>
                         ))}
@@ -304,18 +350,18 @@ export function DashboardClient({
 
                  {/* Focus Today Grid */}
                  <div>
-                    <h3 className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-3">{d.dueToday} / Focus</h3>
+                    <h3 className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-3">{d.dueToday} / {d.focus}</h3>
                     <div className="grid sm:grid-cols-2 gap-4">
                        <div className="p-4 rounded-xl border border-[hsl(var(--border))]">
                           <div className="flex justify-between items-center mb-4"><span className="font-bold">{d.tasks}</span><span className="bg-[hsl(var(--primary))] text-white text-xs px-2 py-0.5 rounded-full">{dueTodayTasks.length}</span></div>
                           <div className="space-y-2">
-                             {dueTodayTasks.length === 0 ? <p className="text-xs text-[hsl(var(--muted-foreground))]">All caught up.</p> : 
+                             {dueTodayTasks.length === 0 ? <p className="text-xs text-[hsl(var(--muted-foreground))]">{d.allCaughtUp}</p> : 
                               dueTodayTasks.slice(0,3).map((t:any) => (
                                 <div key={t.id} className="text-sm flex items-start gap-2"><div className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500 flex-shrink-0" /><span className="truncate">{t.title}</span></div>
                               ))
                              }
                           </div>
-                          <Link href="/tasks" className="text-xs text-[hsl(var(--primary))] font-bold hover:underline mt-3 inline-block">Go to Tasks →</Link>
+                          <Link href="/tasks" className="text-xs text-[hsl(var(--primary))] font-bold hover:underline mt-3 inline-block">{d.goToTasks} →</Link>
                        </div>
                        <div className="p-4 rounded-xl border border-[hsl(var(--border))]">
                           <div className="flex justify-between items-center mb-4"><span className="font-bold">{d.content}</span><span className="bg-pink-500 text-white text-xs px-2 py-0.5 rounded-full">{contentToday.length}</span></div>
@@ -350,7 +396,7 @@ export function DashboardClient({
                       </div>
                     ))}
                     <div className="pt-2 text-center">
-                      <Link href="/clients" className="text-xs text-[hsl(var(--primary))] font-bold hover:underline">Full Portfolio Report →</Link>
+                      <Link href="/clients" className="text-xs text-[hsl(var(--primary))] font-bold hover:underline">{d.fullPortfolioReport} →</Link>
                     </div>
                  </div>
               </div>
@@ -365,12 +411,12 @@ export function DashboardClient({
                             <div className="h-8 w-8 rounded-full bg-[hsl(var(--primary)/0.1)] flex items-center justify-center text-xs font-bold text-[hsl(var(--primary))]">{tm.full_name?.substring(0,2).toUpperCase()}</div>
                             <div>
                                <p className="text-sm font-semibold">{tm.full_name}</p>
-                               <p className="text-[10px] text-[hsl(var(--muted-foreground))]">{tm.completedToday} done today</p>
+                               <p className="text-[10px] text-[hsl(var(--muted-foreground))]">{tm.completedToday} {d.doneToday}</p>
                             </div>
                          </div>
                          <div className="text-right">
-                            <p className="text-xs font-bold bg-[hsl(var(--muted))] px-2 py-1 rounded-md">{tm.taskCount} active</p>
-                            {tm.overdue > 0 && <p className="text-[10px] text-red-500 font-bold mt-1">{tm.overdue} overdue!</p>}
+                            <p className="text-xs font-bold bg-[hsl(var(--muted))] px-2 py-1 rounded-md">{tm.taskCount} {d.active}</p>
+                            {tm.overdue > 0 && <p className="text-[10px] text-red-500 font-bold mt-1">{tm.overdue} {d.overdueExcl}</p>}
                          </div>
                       </div>
                     ))}
@@ -426,20 +472,20 @@ export function DashboardClient({
                  {reviewContent.length === 0 && reviewTasks.length === 0 ? (
                     <div className="p-8 text-center text-[hsl(var(--muted-foreground))] bg-[hsl(var(--muted)/0.3)] rounded-xl border border-dashed border-[hsl(var(--border))]">
                        <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                       <p className="text-sm font-medium">Inbox Zero. All clear!</p>
+                       <p className="text-sm font-medium">{d.inboxZero}</p>
                     </div>
                  ) : (
                     <>
                        {reviewContent.map((c:any) => (
                            <div key={c.id} className="flex justify-between items-center p-3 border border-[hsl(var(--border))] rounded-lg">
                               <span className="text-sm font-semibold truncate max-w-[140px]">{c.title}</span>
-                              <span className="badge bg-indigo-100 text-indigo-800 text-[10px]">Content Review</span>
+                              <span className="badge bg-indigo-100 text-indigo-800 text-[10px]">{d.contentReview}</span>
                            </div>
                        ))}
                        {reviewTasks.map((t:any) => (
                            <div key={t.id} className="flex justify-between items-center p-3 border border-[hsl(var(--border))] rounded-lg">
                               <span className="text-sm font-semibold truncate max-w-[140px]">{t.title}</span>
-                              <span className="badge bg-orange-100 text-orange-800 text-[10px]">Task Review</span>
+                              <span className="badge bg-orange-100 text-orange-800 text-[10px]">{d.taskReview}</span>
                            </div>
                        ))}
                     </>
@@ -463,7 +509,7 @@ export function DashboardClient({
                     </div>
                  ))}
                  {(!notifications || notifications.length === 0) && (
-                    <div className="text-center text-xs text-[hsl(var(--muted-foreground))] py-6">No recent activity</div>
+                    <div className="text-center text-xs text-[hsl(var(--muted-foreground))] py-6">{d.noRecentActivity}</div>
                  )}
               </div>
            </div>

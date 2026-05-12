@@ -13,10 +13,16 @@ export default async function MyTasksPage() {
   const { data: me } = await (supabaseClient as any)
     .from('team_members').select('id, full_name').eq('user_id', user.id).maybeSingle()
   const myTeamMemberId = me?.id ?? '__none__'
-  const firstName =
-    (me?.full_name ?? user.profile?.full_name ?? user.email ?? 'there')
-      .split(' ')[0]
-      .split('@')[0]
+  // Full fallback chain so the greeting always shows a real name:
+  //   team_members.full_name → profiles.full_name → user_metadata.full_name
+  //   → email-prefix → "there"
+  const displayName: string =
+    (me?.full_name && String(me.full_name).trim()) ||
+    (user.profile?.full_name && String(user.profile.full_name).trim()) ||
+    ((user as any)?.user_metadata?.full_name && String((user as any).user_metadata.full_name).trim()) ||
+    (user.email ? String(user.email).split('@')[0] : '') ||
+    'there'
+  const firstName = displayName.split(' ')[0]
 
   const [
     { data: tasks },

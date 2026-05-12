@@ -54,7 +54,7 @@ export function Sidebar({ isAdmin = false, currentUser }: { isAdmin?: boolean; c
   // viewers. Direct URL access is also blocked server-side via
   // requireAdmin() at the top of each admin-only page.
   const navTop = [
-    { name: t.dashboard, href: '/', icon: LayoutDashboard },
+    { name: t.dashboard, href: '/', icon: LayoutDashboard, adminOnly: true },
     { name: t.myWorkspace, href: '/my-dashboard', icon: Sparkles },
     { name: t.finance, href: '/finance', icon: BarChart3, adminOnly: true },
     { name: t.clients, href: '/clients', icon: Users, adminOnly: true },

@@ -43,7 +43,7 @@ const DICT = {
     
     teamPerformance: "Team Workload & Performance",
     contentOps: "Content Operations Pipeline",
-    financeIntel: "Financial Intelligence",
+    financeIntel: "Financial Returns",
     approvalCenter: "Approval & Review Center",
     activityTimeline: "Platform Activity Timeline",
     
@@ -105,7 +105,7 @@ const DICT = {
     
     teamPerformance: "أداء الفريق وحجم العمل",
     contentOps: "عمليات وتشغيل المحتوى",
-    financeIntel: "الذكاء المالي",
+    financeIntel: "العوائد المالية",
     approvalCenter: "مركز المراجعة والاعتمادات",
     activityTimeline: "السجل الزمني للنشاط",
     
@@ -374,52 +374,6 @@ export function DashboardClient({
                           </div>
                        </div>
                     </div>
-                 </div>
-              </div>
-           </div>
-
-           {/* CONTENT OPS & TEAM PERF ROW */}
-           <div className="grid md:grid-cols-2 gap-6">
-              {/* Client Health Radar */}
-              <div className="premium-card p-5">
-                 <h2 className="font-bold text-base flex items-center gap-2 mb-4"><Heart className="h-4 w-4" /> {d.clientHealth}</h2>
-                 <div className="space-y-4">
-                    {clientHealth.slice(0, 5).map((c:any) => (
-                      <div key={c.id} className="space-y-1">
-                         <div className="flex justify-between items-center text-sm">
-                            <span className="font-semibold truncate max-w-[150px]">{c.company_name}</span>
-                            <span className={`font-bold ${c.healthStatus === 'healthy' ? 'text-emerald-500' : c.healthStatus === 'needsAttention' ? 'text-amber-500' : 'text-red-500'}`}>{c.healthScore}/100</span>
-                         </div>
-                         <div className="h-1.5 w-full bg-[hsl(var(--muted))] rounded-full overflow-hidden">
-                            <div className={`h-full ${c.healthStatus === 'healthy' ? 'bg-emerald-500' : c.healthStatus === 'needsAttention' ? 'bg-amber-500' : 'bg-red-500'}`} style={{width: `${c.healthScore}%`}}></div>
-                         </div>
-                      </div>
-                    ))}
-                    <div className="pt-2 text-center">
-                      <Link href="/clients" className="text-xs text-[hsl(var(--primary))] font-bold hover:underline">{d.fullPortfolioReport} →</Link>
-                    </div>
-                 </div>
-              </div>
-
-              {/* Team Workload */}
-              <div className="premium-card p-5">
-                 <h2 className="font-bold text-base flex items-center gap-2 mb-4"><Users className="h-4 w-4" /> {d.teamPerformance}</h2>
-                 <div className="space-y-3">
-                    {teamWorkload.slice(0, 5).map((tm:any) => (
-                      <div key={tm.id} className="flex justify-between items-center p-2 hover:bg-[hsl(var(--muted)/0.3)] rounded-lg transition-colors">
-                         <div className="flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-full bg-[hsl(var(--primary)/0.1)] flex items-center justify-center text-xs font-bold text-[hsl(var(--primary))]">{tm.full_name?.substring(0,2).toUpperCase()}</div>
-                            <div>
-                               <p className="text-sm font-semibold">{tm.full_name}</p>
-                               <p className="text-[10px] text-[hsl(var(--muted-foreground))]">{tm.completedToday} {d.doneToday}</p>
-                            </div>
-                         </div>
-                         <div className="text-right">
-                            <p className="text-xs font-bold bg-[hsl(var(--muted))] px-2 py-1 rounded-md">{tm.taskCount} {d.active}</p>
-                            {tm.overdue > 0 && <p className="text-[10px] text-red-500 font-bold mt-1">{tm.overdue} {d.overdueExcl}</p>}
-                         </div>
-                      </div>
-                    ))}
                  </div>
               </div>
            </div>

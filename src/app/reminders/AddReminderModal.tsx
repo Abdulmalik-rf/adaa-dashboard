@@ -18,8 +18,8 @@ export function AddReminderModal({ clients }: { clients: any[] }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-950 w-full max-w-md rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-        <div className="flex items-center justify-between p-6 border-b dark:border-gray-800">
+      <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-hidden">
+        <div className="flex items-center justify-between p-6 border-b dark:border-slate-700">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <Bell className="h-5 w-5 text-primary" /> Create Remark/Reminder
           </h2>
@@ -34,7 +34,7 @@ export function AddReminderModal({ clients }: { clients: any[] }) {
         }} className="p-6 space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-semibold">Reminder / Note</label>
-            <textarea name="title" required className="w-full p-2.5 border rounded-xl dark:bg-gray-900 bg-transparent" placeholder="e.g. Follow up on the new contract" />
+            <textarea name="title" required className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50" placeholder="e.g. Follow up on the new contract" />
           </div>
 
           <div className="space-y-2">
@@ -52,7 +52,7 @@ export function AddReminderModal({ clients }: { clients: any[] }) {
                 <label className="text-sm font-semibold flex items-center gap-2">
                    <Calendar className="h-3 w-3" /> Due Date
                 </label>
-                <input name="due_date" type="date" required className="w-full p-2.5 border rounded-xl dark:bg-gray-900 bg-transparent text-sm" />
+                <input name="due_date" type="date" required className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 text-sm" />
              </div>
              <div className="space-y-2">
                 <label className="text-sm font-semibold flex items-center gap-2">

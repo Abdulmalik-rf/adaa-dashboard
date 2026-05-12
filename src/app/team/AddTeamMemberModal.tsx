@@ -66,7 +66,7 @@ export function AddTeamMemberModal({ t }: { t: any }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-gray-950 w-full max-w-md rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+      <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
         <div className="flex items-center justify-between p-6 border-b dark:border-gray-800">
           <h2 className="text-xl font-bold flex items-center gap-2">
             {credentials ? (
@@ -143,7 +143,7 @@ export function AddTeamMemberModal({ t }: { t: any }) {
               <label className="text-sm font-semibold">{t.contactPerson}</label>
               <div className="relative">
                 <UserPlus className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <input name="full_name" required className="w-full p-2.5 pl-10 border rounded-xl dark:bg-gray-900 bg-gray-50/50" placeholder="Full Name" />
+                <input name="full_name" required className="w-full p-2.5 pl-10 border rounded-xl dark:bg-slate-700 bg-gray-50" placeholder="Full Name" />
               </div>
             </div>
 
@@ -152,14 +152,14 @@ export function AddTeamMemberModal({ t }: { t: any }) {
                 <label className="text-sm font-semibold">{t.jobTitle}</label>
                 <div className="relative">
                   <Briefcase className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <input name="job_title" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-gray-900 bg-gray-50/50" placeholder="Manager" />
+                  <input name="job_title" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-slate-700 bg-gray-50" placeholder="Manager" />
                 </div>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">{t.role}</label>
                 <div className="relative">
                   <ShieldCheck className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <select name="role" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-gray-900 bg-gray-50/50 text-sm appearance-none">
+                  <select name="role" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-slate-700 bg-gray-50 text-sm appearance-none">
                     <option value="admin">Admin</option>
                     <option value="manager">Manager</option>
                     <option value="employee">Employee</option>
@@ -172,7 +172,7 @@ export function AddTeamMemberModal({ t }: { t: any }) {
               <label className="text-sm font-semibold">{t.emailAddress}</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <input name="email" type="email" required className="w-full p-2.5 pl-10 border rounded-xl dark:bg-gray-900 bg-gray-50/50" placeholder="email@agency.com" />
+                <input name="email" type="email" required className="w-full p-2.5 pl-10 border rounded-xl dark:bg-slate-700 bg-gray-50" placeholder="email@agency.com" />
               </div>
             </div>
 
@@ -180,7 +180,7 @@ export function AddTeamMemberModal({ t }: { t: any }) {
               <label className="text-sm font-semibold">{t.phoneNumber}</label>
               <div className="relative">
                 <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <input name="phone" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-gray-900 bg-gray-50/50" placeholder="+966" />
+                <input name="phone" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-slate-700 bg-gray-50" placeholder="+966" />
               </div>
             </div>
 
@@ -189,12 +189,12 @@ export function AddTeamMemberModal({ t }: { t: any }) {
                 <label className="text-sm font-semibold">Monthly salary</label>
                 <div className="relative">
                   <Banknote className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <input name="salary" type="number" min="0" step="0.01" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-gray-900 bg-gray-50/50" placeholder="e.g. 5000" />
+                  <input name="salary" type="number" min="0" step="0.01" className="w-full p-2.5 pl-10 border rounded-xl dark:bg-slate-700 bg-gray-50" placeholder="e.g. 5000" />
                 </div>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Currency</label>
-                <select name="salary_currency" defaultValue="SAR" className="w-full p-2.5 border rounded-xl dark:bg-gray-900 bg-gray-50/50 text-sm appearance-none">
+                <select name="salary_currency" defaultValue="SAR" className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 text-sm appearance-none">
                   <option value="SAR">SAR</option>
                   <option value="USD">USD</option>
                   <option value="AED">AED</option>

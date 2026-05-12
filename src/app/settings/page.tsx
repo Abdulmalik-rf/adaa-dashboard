@@ -41,7 +41,7 @@ export default async function SettingsPage() {
                 <select
                   name="whatsapp_provider"
                   defaultValue={settings.whatsapp_provider ?? 'twilio'}
-                  className="h-9 w-full rounded-md border border-gray-200 bg-white text-gray-900 px-3 py-1 text-sm shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                  className="h-9 w-full rounded-md border border-gray-200 bg-white text-gray-900 px-3 py-1 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-gray-100"
                 >
                   <option value="twilio" className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">Twilio</option>
                   <option value="meta" className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">Meta Cloud API</option>
@@ -56,7 +56,7 @@ export default async function SettingsPage() {
                   type="password"
                   name="whatsapp_api_token"
                   placeholder={hasToken ? 'Enter new token to rotate…' : 'Enter API token…'}
-                  className="h-9 w-full rounded-md border border-gray-200 bg-transparent px-3 py-1 text-sm shadow-sm dark:border-gray-800"
+                  className="h-9 w-full rounded-md border border-gray-200 bg-transparent px-3 py-1 text-sm shadow-sm dark:border-slate-700"
                 />
               </div>
               <Button type="submit">Save Configuration</Button>
@@ -78,7 +78,7 @@ export default async function SettingsPage() {
                   name="agency_name"
                   defaultValue={settings.agency_name ?? ''}
                   placeholder="Emergize Agency"
-                  className="h-9 w-full rounded-md border border-gray-200 bg-transparent px-3 py-1 text-sm shadow-sm dark:border-gray-800"
+                  className="h-9 w-full rounded-md border border-gray-200 bg-transparent px-3 py-1 text-sm shadow-sm dark:border-slate-700"
                 />
               </div>
               <div className="grid gap-2">
@@ -88,7 +88,7 @@ export default async function SettingsPage() {
                   name="support_email"
                   defaultValue={settings.support_email ?? ''}
                   placeholder="support@emergize.sa"
-                  className="h-9 w-full rounded-md border border-gray-200 bg-transparent px-3 py-1 text-sm shadow-sm dark:border-gray-800"
+                  className="h-9 w-full rounded-md border border-gray-200 bg-transparent px-3 py-1 text-sm shadow-sm dark:border-slate-700"
                 />
               </div>
               <Button type="submit">Update Profile</Button>

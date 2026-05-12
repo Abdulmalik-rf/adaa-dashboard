@@ -114,7 +114,7 @@ const PRIORITY_BADGE: Record<string, string> = {
 }
 
 export function MyDashboardClient({
-  me, tasks, contentItems, clients, clientServices, contracts, notifications
+  me, tasks, contentItems, clients, clientServices, contracts, notifications, displayName
 }: any) {
   const { language, dir } = useLanguage()
   const d = DICT[language as 'en' | 'ar'] || DICT.en
@@ -173,7 +173,12 @@ export function MyDashboardClient({
   }).sort((a: any, b: any) => (b.myPending + b.myContent) - (a.myPending + a.myContent)),
   [clients, pendingTasks, pendingContent, contracts, servicesByClient])
 
-  const firstName = me?.full_name?.split(' ')[0] || 'there'
+  // Greeting first-name: prefer the explicit displayName from page.tsx
+  // (which has the full fallback chain: team_members → profiles →
+  // user_metadata → email-prefix). Falls back to me.full_name if the
+  // page didn't pass displayName (legacy callers).
+  const firstName = ((displayName as string | undefined) || me?.full_name || 'there')
+    .split(' ')[0]
   const currentHour = new Date().getHours()
   const timeOfDay = currentHour < 12 ? '☀️' : currentHour < 18 ? '🌤️' : '🌙'
 

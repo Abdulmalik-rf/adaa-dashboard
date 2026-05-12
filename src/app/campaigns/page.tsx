@@ -20,7 +20,7 @@ export default async function CampaignsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between bg-white dark:bg-gray-950 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+      <div className="flex items-center justify-between bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
         <div>
            <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Ad Campaigns</h1>
            <p className="text-gray-500 text-sm mt-1">Track and manage active marketing campaigns and budgets</p>
@@ -28,7 +28,7 @@ export default async function CampaignsPage() {
         <AddCampaignModal clients={clients || []} />
       </div>
 
-      <div className="bg-white dark:bg-gray-950 border border-gray-100 dark:border-gray-800 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>

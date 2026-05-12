@@ -1,13 +1,59 @@
 import { supabaseClient } from "@/lib/supabase/client"
 import { Plus, Search, Users, TrendingUp, UserCheck, AlertCircle, DollarSign } from "lucide-react"
 import Link from "next/link"
+import { cookies } from "next/headers"
 import { deleteClient } from "@/app/actions/clients"
 import { Trash2, ArrowUpRight, Building2, Phone, Mail } from "lucide-react"
 
 export const revalidate = 60
 
+// Inline dict (server-side, no useLanguage). Reads `locale` cookie set
+// by the client-side language toggle so Arabic users see Arabic.
+const T = {
+  en: {
+    portfolioTitle: "Client Portfolio",
+    clients: "clients", active: "active", leads: "leads", toContact: "to contact",
+    addClient: "Add Client",
+    totalClients: "Total Clients", allAccounts: "All accounts",
+    activeClients: "Active Clients", withActive: "With active contracts",
+    activeRevenue: "Active Revenue", monthly: "Monthly from contracts",
+    atRisk: "At Risk", healthLow: "Health score < 60",
+    searchPlaceholder: "Search by company, name, or email...",
+    filterAll: "All", filterLead: "Lead", filterActive: "Active",
+    filterPaused: "Paused", filterInactive: "Inactive", filterToContact: "To Contact",
+    rowCountClient: "Client", rowCountClients: "Clients",
+    rowHint: "Click any row to open client profile",
+    colCompany: "Company / Contact", colContact: "Contact", colServices: "Services",
+    colRevenue: "Revenue", colHealth: "Health", colTasks: "Tasks",
+    colStatus: "Status", colActions: "Actions",
+    noClients: "No clients found", addFirst: "Add First Client",
+    noContract: "No contract", noTasksLabel: "pending", lateLabel: "late",
+  },
+  ar: {
+    portfolioTitle: "محفظة العملاء",
+    clients: "عميل", active: "نشط", leads: "محتمل", toContact: "للتواصل",
+    addClient: "إضافة عميل",
+    totalClients: "إجمالي العملاء", allAccounts: "جميع الحسابات",
+    activeClients: "العملاء النشطون", withActive: "مع عقود نشطة",
+    activeRevenue: "الإيرادات النشطة", monthly: "شهرياً من العقود",
+    atRisk: "في خطر", healthLow: "مؤشر الصحة < 60",
+    searchPlaceholder: "ابحث بالشركة، الاسم، أو البريد...",
+    filterAll: "الكل", filterLead: "محتمل", filterActive: "نشط",
+    filterPaused: "متوقف", filterInactive: "غير نشط", filterToContact: "للتواصل",
+    rowCountClient: "عميل", rowCountClients: "عملاء",
+    rowHint: "اضغط على أي صف لفتح ملف العميل",
+    colCompany: "الشركة / المسؤول", colContact: "التواصل", colServices: "الخدمات",
+    colRevenue: "الإيرادات", colHealth: "الصحة", colTasks: "المهام",
+    colStatus: "الحالة", colActions: "الإجراءات",
+    noClients: "لا يوجد عملاء", addFirst: "إضافة أول عميل",
+    noContract: "بدون عقد", noTasksLabel: "معلق", lateLabel: "متأخر",
+  },
+} as const
+
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
   const { q, status } = await searchParams
+  const locale = (await cookies()).get('locale')?.value === 'ar' ? 'ar' : 'en'
+  const t = T[locale]
 
   const [
     { data: clients },
@@ -91,12 +137,12 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   }
 
   const statusLabel: Record<string, string> = {
-    all: 'All',
-    to_contact: 'To Contact',
-    lead: 'Lead',
-    active: 'Active',
-    paused: 'Paused',
-    inactive: 'Inactive',
+    all: t.filterAll,
+    to_contact: t.filterToContact,
+    lead: t.filterLead,
+    active: t.filterActive,
+    paused: t.filterPaused,
+    inactive: t.filterInactive,
   }
 
   const statuses = ['all', 'to_contact', 'lead', 'active', 'paused', 'inactive']
@@ -107,15 +153,15 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-black tracking-tight flex items-center gap-3">
-            <Users className="h-7 w-7 text-blue-500" /> Client Portfolio
+            <Users className="h-7 w-7 text-blue-500" /> {t.portfolioTitle}
           </h1>
           <p className="text-[hsl(var(--muted-foreground))] mt-1 font-medium">
-            {total} clients · {activeCount} active · {leadCount} leads{toContactCount > 0 ? ` · ${toContactCount} to contact` : ''}
+            {total} {t.clients} · {activeCount} {t.active} · {leadCount} {t.leads}{toContactCount > 0 ? ` · ${toContactCount} ${t.toContact}` : ''}
           </p>
         </div>
         <Link href="/clients/new">
           <button className="btn btn-primary shadow-lg shadow-[hsl(var(--primary)/0.2)] flex items-center gap-2">
-            <Plus className="h-4 w-4" /> Add Client
+            <Plus className="h-4 w-4" /> {t.addClient}
           </button>
         </Link>
       </div>
@@ -123,10 +169,10 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
       {/* EXECUTIVE KPI STRIP */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Clients',    value: total,                          color: 'border-l-blue-500',    sub: 'All accounts', icon: Users },
-          { label: 'Active Clients',   value: activeCount,                    color: 'border-l-emerald-500', sub: 'With active contracts', icon: UserCheck },
-          { label: 'Active Revenue',   value: `${totalRevenue.toLocaleString()} SAR`, color: 'border-l-indigo-500', sub: 'Monthly from contracts', icon: DollarSign },
-          { label: 'At Risk',          value: atRiskCount,                    color: 'border-l-red-500',     sub: 'Health score < 60', icon: AlertCircle },
+          { label: t.totalClients,    value: total,                          color: 'border-l-blue-500',    sub: t.allAccounts, icon: Users },
+          { label: t.activeClients,   value: activeCount,                    color: 'border-l-emerald-500', sub: t.withActive, icon: UserCheck },
+          { label: t.activeRevenue,   value: `${totalRevenue.toLocaleString()} SAR`, color: 'border-l-indigo-500', sub: t.monthly, icon: DollarSign },
+          { label: t.atRisk,          value: atRiskCount,                    color: 'border-l-red-500',     sub: t.healthLow, icon: AlertCircle },
         ].map((kpi, i) => (
           <div key={i} className={`premium-card p-4 border-l-4 ${kpi.color} flex items-center gap-4`}>
             <kpi.icon className="h-8 w-8 text-[hsl(var(--muted-foreground))] opacity-40 flex-shrink-0" />
@@ -146,7 +192,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
           <input
             name="q"
             defaultValue={q}
-            placeholder="Search by company, name, or email..."
+            placeholder={t.searchPlaceholder}
             className="form-input pl-10 rounded-full"
           />
           {status && <input type="hidden" name="status" value={status} />}
@@ -169,21 +215,21 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
       {/* CLIENTS TABLE */}
       <div className="premium-card overflow-hidden">
         <div className="p-5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-          <h2 className="font-bold text-base">{filtered.length} {filtered.length === 1 ? 'Client' : 'Clients'}</h2>
-          <span className="text-xs text-[hsl(var(--muted-foreground))]">Click any row to open client profile</span>
+          <h2 className="font-bold text-base">{filtered.length} {filtered.length === 1 ? t.rowCountClient : t.rowCountClients}</h2>
+          <span className="text-xs text-[hsl(var(--muted-foreground))]">{t.rowHint}</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full data-table">
             <thead>
               <tr>
-                <th className="text-left">Company / Contact</th>
-                <th className="text-left">Contact</th>
-                <th className="text-left">Services</th>
-                <th className="text-left">Revenue</th>
-                <th className="text-left">Health</th>
-                <th className="text-left">Tasks</th>
-                <th className="text-left">Status</th>
-                <th className="text-right">Actions</th>
+                <th className="text-left">{t.colCompany}</th>
+                <th className="text-left">{t.colContact}</th>
+                <th className="text-left">{t.colServices}</th>
+                <th className="text-left">{t.colRevenue}</th>
+                <th className="text-left">{t.colHealth}</th>
+                <th className="text-left">{t.colTasks}</th>
+                <th className="text-left">{t.colStatus}</th>
+                <th className="text-right">{t.colActions}</th>
               </tr>
             </thead>
             <tbody>
@@ -191,9 +237,9 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                 <tr>
                   <td colSpan={8} className="py-20 text-center">
                     <Users className="h-12 w-12 mx-auto mb-3 opacity-15" />
-                    <p className="text-[hsl(var(--muted-foreground))] font-medium">No clients found</p>
+                    <p className="text-[hsl(var(--muted-foreground))] font-medium">{t.noClients}</p>
                     <Link href="/clients/new">
-                      <button className="btn btn-primary mt-4"><Plus className="h-4 w-4" /> Add First Client</button>
+                      <button className="btn btn-primary mt-4"><Plus className="h-4 w-4" /> {t.addFirst}</button>
                     </Link>
                   </td>
                 </tr>
@@ -241,7 +287,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                     {client.revenue > 0 ? (
                       <span className="text-sm font-bold text-emerald-500">{client.revenue.toLocaleString()} SAR</span>
                     ) : (
-                      <span className="text-xs text-[hsl(var(--muted-foreground))]">No contract</span>
+                      <span className="text-xs text-[hsl(var(--muted-foreground))]">{t.noContract}</span>
                     )}
                   </td>
                   <td>
@@ -260,9 +306,9 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   <td>
                     <div className="flex items-center gap-2 text-xs">
                       <span className="font-semibold">{client.pendingTasks}</span>
-                      <span className="text-[hsl(var(--muted-foreground))]">pending</span>
+                      <span className="text-[hsl(var(--muted-foreground))]">{t.noTasksLabel}</span>
                       {client.overdueTasks > 0 && (
-                        <span className="text-red-500 font-bold">({client.overdueTasks} late)</span>
+                        <span className="text-red-500 font-bold">({client.overdueTasks} {t.lateLabel})</span>
                       )}
                     </div>
                   </td>

@@ -57,6 +57,19 @@ export default async function MyDashboardPage() {
   )
   const myClients = (clients || []).filter((c: any) => myClientIds.includes(c.id))
 
+  // Resolve a display name for the greeting with proper fallback chain:
+  //   1. team_members.full_name (set when admin added them)
+  //   2. profiles.full_name (set on signup user_metadata or admin create)
+  //   3. user.user_metadata.full_name (Supabase auth metadata)
+  //   4. email prefix (admin@emergize.sa → "admin")
+  //   5. "there" as last resort
+  const displayName: string =
+    (me?.full_name && String(me.full_name).trim()) ||
+    (user.profile?.full_name && String(user.profile.full_name).trim()) ||
+    ((user as any)?.user_metadata?.full_name && String((user as any).user_metadata.full_name).trim()) ||
+    (user.email ? String(user.email).split('@')[0] : '') ||
+    'there'
+
   return (
     <MyDashboardClient
       me={me}
@@ -66,6 +79,7 @@ export default async function MyDashboardPage() {
       clientServices={clientServices || []}
       contracts={contracts || []}
       notifications={myNotifications}
+      displayName={displayName}
     />
   )
 }

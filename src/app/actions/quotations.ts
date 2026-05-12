@@ -1,6 +1,7 @@
 'use server'
 
 import { supabaseClient } from '@/lib/supabase/client'
+import { agentSupabase } from '@/lib/chat-agent/supabase'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
@@ -11,14 +12,16 @@ import { redirect } from 'next/navigation'
 export async function nextQuoteNumber(): Promise<string> {
   const year = new Date().getFullYear()
   const prefix = `Q-${year}-`
-  const { data, error } = await (supabaseClient as any)
+  // Service-role client so the lookup isn't blocked by RLS in production
+  const sb = agentSupabase()
+  const { data, error } = await sb
     .from('quotations')
     .select('quote_number')
     .like('quote_number', `${prefix}%`)
     .order('quote_number', { ascending: false })
     .limit(1)
   if (error) throw new Error(`quote_number lookup failed: ${error.message}`)
-  const last = data?.[0]?.quote_number as string | undefined
+  const last = (data?.[0] as any)?.quote_number as string | undefined
   const n = last ? parseInt(last.slice(prefix.length), 10) + 1 : 1
   return `${prefix}${String(n).padStart(3, '0')}`
 }
@@ -29,7 +32,10 @@ export async function createBlankQuotation() {
   const validUntil = new Date(today)
   validUntil.setDate(validUntil.getDate() + 30)
 
-  const { data, error } = await (supabaseClient as any)
+  // Use service-role client — `quotations` has RLS that blocks anon
+  // inserts, which was 500-ing /quotations/new for users.
+  const sb = agentSupabase()
+  const { data, error } = await sb
     .from('quotations')
     .insert({
       quote_number,
@@ -45,7 +51,8 @@ export async function createBlankQuotation() {
 }
 
 export async function deleteQuotation(id: string) {
-  const { error } = await (supabaseClient as any).from('quotations').delete().eq('id', id)
+  const sb = agentSupabase()
+  const { error } = await sb.from('quotations').delete().eq('id', id)
   if (error) throw new Error(`delete quotation failed: ${error.message}`)
   revalidatePath('/quotations')
   redirect('/quotations')

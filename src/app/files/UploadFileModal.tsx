@@ -18,8 +18,8 @@ export function UploadFileModal({ clients }: { clients: any[] }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-950 w-full max-w-md rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-        <div className="flex items-center justify-between p-6 border-b dark:border-gray-800">
+      <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-hidden">
+        <div className="flex items-center justify-between p-6 border-b dark:border-slate-700">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <Upload className="h-5 w-5 text-primary" /> Upload File
           </h2>
@@ -36,7 +36,7 @@ export function UploadFileModal({ clients }: { clients: any[] }) {
             <label className="text-sm font-semibold">File Name</label>
             <div className="relative">
               <File className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-              <input name="name" required className="w-full p-2.5 pl-10 border rounded-xl dark:bg-gray-900 bg-transparent" placeholder="e.g. Contract-2024.pdf" />
+              <input name="name" required className="w-full p-2.5 pl-10 border rounded-xl dark:bg-slate-700 bg-gray-50" placeholder="e.g. Contract-2024.pdf" />
             </div>
           </div>
 

@@ -134,6 +134,32 @@ Audit trail: every power-tool call is logged to public.agent_audit. If a write w
 - If the image is ambiguous, ask what the user wants done with it in one short line.
 - **Inbound images are auto-rehosted in Supabase Storage** and the public URL appears at the end of the user message as "[uploaded_image: https://...]". When the user wants the image used as a thumbnail, contract file, or content media, paste that URL into the relevant tool's media_url / file_path field — DON'T call upload_image again.
 
+## Documents (PDFs, Word, CSV, etc.)
+Inbound documents from WhatsApp are auto-handled exactly like images. The block at the end of the user message looks like:
+
+    [uploaded_document: https://... | name: <filename> | mime: <mime> | size: <bytes>]
+    --- extracted text (first ~8000 chars, may be truncated) ---
+    <the PDF's text content if it's a PDF>
+    --- end of extracted text ---
+
+The URL is a public Supabase Storage link you can drop directly into tool calls.
+
+Common flows:
+- **PDF contract** ("here's the signed contract") → read the extracted text → find_client → call add_contract with the extracted title/parties/start/end/value. Then call add_client_file_link({ client_id, name: <filename>, file_path: <url>, category: "contract", file_type: "pdf" }) so it shows up under the client's Files tab.
+- **PDF invoice / payment receipt** → if related to an existing contract, call add_contract_payment (or mark_payment_paid if the user says "they paid"). Always attach via add_client_file_link.
+- **PDF anything else for a known client** → just attach via add_client_file_link with the most accurate category you can infer (proposal, design, branding, report, etc.).
+- **PDF the user wants you to forward** ("send this to +966555…") → send_whatsapp_file_url with the URL from the uploaded_document tag. ONE call. Don't re-upload.
+- **PDF the user wants you to email** ("forward this PDF to john@acme.com") → send_email with attachments=[{ url: <the document url>, filename: <name> }].
+- **PDF too long to read inline** — the extracted-text block is capped at ~8000 chars. If the user asks about content past that, call read_pdf({ url, max_chars }) for more.
+- **Non-PDF documents** (Word, Excel, CSV, ZIP, etc.) — the extracted-text block won't be present; act on the filename/URL only. You can still attach to client_files, forward via WhatsApp/email, etc., but you can't read the contents until they convert to PDF.
+
+NEVER call read_pdf on the URL from the inbound message — the inline extracted text already covers the typical case. Only call it for follow-ups, external links, or when you explicitly need more chars than the cap.
+
+## Email attachments
+send_email supports an "attachments" array. Each item is { url, filename } (any public URL — uploaded_document URLs work, client_files file_paths work, external links work) or { file_id, filename } (looks up client_files by id). Max 5 attachments, 20MB total. Common uses:
+- "forward this PDF to <email>" → send_email with attachments=[{ url: <inbound doc url>, filename: <doc name> }]
+- "email the Emergize profile to <email>" → first list_client_files to find the profile id, then send_email with attachments=[{ file_id: <id>, filename: "Emergize Profile.pdf" }]
+
 ## Business-card automation — IMPORTANT
 When the user sends a business card image, decide the outreach action from THEIR message, not the card:
 - **No outreach mention** (just "add this", "save this card", or no text at all) → call add_client(status="to_contact"). DONE. Do NOT message the person. The dashboard will show them in the "Not contacted yet" pill so the admin can decide later.
@@ -207,14 +233,25 @@ Every saved fact sits in the system prompt of every future call, so it costs tok
 - Call forget_fact(id) when the user says "forget …" or "drop that".${factsBlock}`
 }
 
-function userMessageItem(text, images, imageUrls) {
+function userMessageItem(text, images, imageUrls, documents) {
   // The data URLs go to vision; the public URLs are surfaced in the text so
   // the model can paste them into tool calls (media_url, file_path, etc.).
-  const baseText = text || '(no text, image only)'
-  const tag = (imageUrls ?? [])
+  // Documents are similarly surfaced with their URL + extracted PDF text
+  // (capped at 8000 chars by the inbound handler) so the LLM can act on
+  // them without needing a separate read_pdf round-trip for the common case.
+  const baseText = text || (images.length || (documents ?? []).length ? '(no text, media only)' : '')
+  const imageTag = (imageUrls ?? [])
     .map((u) => `\n\n[uploaded_image: ${u}]`)
     .join('')
-  const parts = [{ type: 'input_text', text: baseText + tag }]
+  const docTag = (documents ?? [])
+    .map((d) => {
+      const header = `\n\n[uploaded_document: ${d.url} | name: ${d.fileName} | mime: ${d.mime} | size: ${d.size}]`
+      return d.extractedText
+        ? `${header}\n--- extracted text (first ~8000 chars, may be truncated) ---\n${d.extractedText}\n--- end of extracted text ---`
+        : header
+    })
+    .join('')
+  const parts = [{ type: 'input_text', text: baseText + imageTag + docTag }]
   for (const url of images) parts.push({ type: 'input_image', image_url: url })
   return { type: 'message', role: 'user', content: parts }
 }
@@ -279,12 +316,13 @@ async function callModel(input) {
 export async function handleMessage(userText, opts = {}) {
   const images = opts.images ?? []
   const imageUrls = opts.imageUrls ?? []
+  const documents = opts.documents ?? []
   const sender = opts.sender ?? 'default'
 
   // Start with the rolling per-sender history so follow-ups like "yes",
   // "Dammam", "at 3pm" stay anchored to the original request.
   const history = getHistory(sender)
-  const userMsg = userMessageItem(userText, images, imageUrls)
+  const userMsg = userMessageItem(userText, images, imageUrls, documents)
   appendUser(sender, userMsg)
 
   let input = [...history, userMsg]

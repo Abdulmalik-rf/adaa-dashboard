@@ -708,6 +708,36 @@ async function postEmailToResend(apiKey, body) {
   })
 }
 
+// Resolve { url | file_id, filename? } → { filename, content (base64) }.
+// Used by sendEmail and send_whatsapp_file_url to share the same fetch /
+// client_files-resolution code path.
+async function resolveAttachment(att, maxBytes) {
+  let url = att.url
+  let filename = att.filename
+  if (!url && att.file_id) {
+    const { data: row, error } = await supabase
+      .from('client_files').select('name, file_path, file_type').eq('id', att.file_id).maybeSingle()
+    if (error || !row) throw new Error(`attachment file_id ${att.file_id} not found`)
+    url = row.file_path
+    filename = filename || row.name
+  }
+  if (!url) throw new Error('attachment needs url or file_id')
+  if (!filename) {
+    // Last segment of the URL path, stripped of query string
+    try {
+      const u = new URL(url)
+      filename = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || 'attachment')
+    } catch { filename = 'attachment' }
+  }
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`attachment fetch failed (${res.status}): ${url}`)
+  const buf = Buffer.from(await res.arrayBuffer())
+  if (buf.length > maxBytes) {
+    throw new Error(`attachment "${filename}" too large (${buf.length} bytes, limit ${maxBytes})`)
+  }
+  return { filename, content: buf.toString('base64'), bytes: buf.length }
+}
+
 async function sendEmail(input) {
   const to = String(input.to ?? '').trim()
   const subject = String(input.subject ?? '').trim()
@@ -729,7 +759,24 @@ async function sendEmail(input) {
     }
   }
 
-  let res = await postEmailToResend(apiKey, { from: primaryFrom, to: [to], subject, text })
+  // Resolve attachments. Capped at 5 files / 20MB total — Resend's own
+  // limit is 40MB but we leave headroom for the base64 expansion.
+  const attachInputs = Array.isArray(input.attachments) ? input.attachments.slice(0, 5) : []
+  const attachments = []
+  let totalBytes = 0
+  for (const a of attachInputs) {
+    const resolved = await resolveAttachment(a, 20 * 1024 * 1024)
+    totalBytes += resolved.bytes
+    if (totalBytes > 20 * 1024 * 1024) {
+      throw new Error('total attachment size exceeds 20MB cap')
+    }
+    attachments.push({ filename: resolved.filename, content: resolved.content })
+  }
+
+  const bodyShared = { from: primaryFrom, to: [to], subject, text }
+  if (attachments.length) bodyShared.attachments = attachments
+
+  let res = await postEmailToResend(apiKey, bodyShared)
   let fromUsed = primaryFrom
   let domainFallback = false
 
@@ -744,7 +791,7 @@ async function sendEmail(input) {
       /domain (is )?not verified|verify your domain/i.test(peek)
     if (looksLikeDomainErr) {
       console.warn(`[email] primary sender "${primaryFrom}" not verified — retrying via fallback "${fallbackFrom}"`)
-      res = await postEmailToResend(apiKey, { from: fallbackFrom, to: [to], subject, text })
+      res = await postEmailToResend(apiKey, { ...bodyShared, from: fallbackFrom })
       fromUsed = fallbackFrom
       domainFallback = true
     }
@@ -755,13 +802,17 @@ async function sendEmail(input) {
     throw new Error(`Resend ${res.status}: ${body.slice(0, 200)}`)
   }
 
-  await markClientContacted(input.client_id, 'email', `Email "${subject}": ${text}`)
-  console.log(`[outbound] emailed ${to}: ${subject} (from=${fromUsed}${domainFallback ? ' [fallback]' : ''})`)
+  const attachSummary = attachments.length
+    ? ` (+${attachments.length} attachment${attachments.length === 1 ? '' : 's'})`
+    : ''
+  await markClientContacted(input.client_id, 'email', `Email "${subject}"${attachSummary}: ${text}`)
+  console.log(`[outbound] emailed ${to}: ${subject}${attachSummary} (from=${fromUsed}${domainFallback ? ' [fallback]' : ''})`)
   return {
     sent: true,
     to,
     subject,
     from: fromUsed,
+    attachments_sent: attachments.length,
     client_marked_contacted: !!input.client_id,
     ...(domainFallback
       ? {
@@ -805,6 +856,83 @@ function mimeFromExt(ext) {
 //   search runs across ALL clients so agency-wide assets like the
 //   company profile can be found without knowing which client they're
 //   attached to.
+// Send any public URL as a WhatsApp document — sibling to sendWhatsappFile
+// but doesn't require the file to live in client_files first. Used for
+// forwarding an inbound PDF the user just sent, shipping an external link,
+// etc. If the URL is gated, the agent should download it first via fetch
+// inside run_code and then pass a Supabase-Storage public URL.
+async function sendWhatsappFileUrl(input) {
+  if (!isReady()) throw new Error('WhatsApp socket is not ready yet')
+  const jid = phoneToJid(input.to_phone)
+  if (!jid) throw new Error(`invalid phone number: "${input.to_phone}"`)
+  if (!input.url) throw new Error('url is required')
+
+  const resp = await fetch(input.url)
+  if (!resp.ok) throw new Error(`fetch ${input.url} → HTTP ${resp.status}`)
+  const buf = Buffer.from(await resp.arrayBuffer())
+  if (buf.length > 64 * 1024 * 1024) {
+    throw new Error(`file too large for WhatsApp (${buf.length} bytes, cap 64MB)`)
+  }
+
+  // Filename / mime: prefer explicit inputs, fall back to URL inference.
+  let filename = input.filename
+  if (!filename) {
+    try {
+      const u = new URL(input.url)
+      filename = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || 'file')
+    } catch { filename = 'file' }
+  }
+  const ext = (filename.split('.').pop() || '').toLowerCase()
+  const mime = input.mime || resp.headers.get('content-type')?.split(';')[0] || mimeFromExt(ext)
+
+  const sock = getSock()
+  await sock.sendMessage(jid, {
+    document: buf,
+    mimetype: mime,
+    fileName: filename,
+    caption: input.caption || undefined,
+  })
+
+  await markClientContacted(input.client_id, 'whatsapp', `Sent file "${filename}" (${(buf.length / 1024).toFixed(1)} KB) via WhatsApp`)
+  console.log(`[outbound] WA file ${filename} → ${jid} (${buf.length} bytes from ${input.url})`)
+  return {
+    sent: true,
+    to: jid,
+    filename,
+    mime,
+    bytes: buf.length,
+    client_marked_contacted: !!input.client_id,
+  }
+}
+
+// Fetch a PDF and extract text. Mostly for re-reading inbound PDFs where
+// the inline 8000-char preview wasn't enough, or for following a PDF link
+// the user pasted in a follow-up turn.
+async function readPdf(input) {
+  if (!input.url) throw new Error('url is required')
+  const max = Math.max(1, Math.min(60000, input.max_chars ?? 24000))
+
+  const { extractText: pdfExtractText, getDocumentProxy } = await import('unpdf')
+  const resp = await fetch(input.url)
+  if (!resp.ok) throw new Error(`fetch ${input.url} → HTTP ${resp.status}`)
+  const buf = Buffer.from(await resp.arrayBuffer())
+  if (buf.length > 32 * 1024 * 1024) {
+    throw new Error(`PDF too large (${buf.length} bytes, cap 32MB)`)
+  }
+
+  const pdf = await getDocumentProxy(new Uint8Array(buf))
+  const numPages = pdf.numPages ?? null
+  const result = await pdfExtractText(pdf, { mergePages: true })
+  const fullText = String(result.text || '').trim()
+  const truncated = fullText.length > max
+  return {
+    text: truncated ? fullText.slice(0, max) : fullText,
+    pages: numPages,
+    total_chars: fullText.length,
+    truncated,
+  }
+}
+
 async function sendWhatsappFile(input) {
   if (!isReady()) throw new Error('WhatsApp socket is not ready yet')
   const jid = phoneToJid(input.to_phone)
@@ -2004,7 +2132,9 @@ const registry = {
   // outbound WhatsApp + email to arbitrary recipients
   send_whatsapp_message: sendWhatsappMessage,
   send_whatsapp_file: sendWhatsappFile,
+  send_whatsapp_file_url: sendWhatsappFileUrl,
   send_email: sendEmail,
+  read_pdf: readPdf,
   // client services
   add_client_service: addClientService,
   remove_client_service: removeClientService,

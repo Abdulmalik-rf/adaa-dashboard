@@ -12,6 +12,8 @@ import { startScheduler } from './scheduler.js'
 import { setSock } from './sock-holder.js'
 import { runTool } from './tools/executors.js'
 import { withRequest } from './context.js'
+import { extractText as pdfExtractText, getDocumentProxy } from 'unpdf'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
 const makeWASocket = baileys.default ?? baileys.makeWASocket ?? baileys
 
@@ -100,6 +102,8 @@ function extractText(msg) {
     m.extendedTextMessage?.text ??
     m.imageMessage?.caption ??
     m.videoMessage?.caption ??
+    m.documentMessage?.caption ??
+    m.documentWithCaptionMessage?.message?.documentMessage?.caption ??
     ''
   ).trim()
 }
@@ -116,6 +120,26 @@ async function downloadImage(imageMessage) {
   return { buffer, mime }
 }
 
+// Inbound document (PDF / Word / etc) handler — mirrors downloadImage
+// but for documentMessage. Cap at 32MB so a malicious / oversized PDF
+// can't hang the worker.
+const MAX_DOC_BYTES = 32 * 1024 * 1024
+async function downloadDocument(documentMessage) {
+  const stream = await downloadContentFromMessage(documentMessage, 'document')
+  const chunks = []
+  for await (const chunk of stream) chunks.push(chunk)
+  const buffer = Buffer.concat(chunks)
+  if (buffer.length > MAX_DOC_BYTES) {
+    throw new Error('document too large (>32 MB)')
+  }
+  return {
+    buffer,
+    mime: documentMessage.mimetype || 'application/octet-stream',
+    fileName: documentMessage.fileName || 'document',
+    fileLength: documentMessage.fileLength?.low ?? buffer.length,
+  }
+}
+
 // Re-host an inbound image in Supabase Storage so the agent can paste the
 // public URL into report content (media_url), client_files, etc. Returns
 // null on failure — the agent still sees the image via the data URL, we
@@ -130,6 +154,60 @@ async function rehostInbound({ buffer, mime }, hint) {
     return result?.public_url ?? null
   } catch (err) {
     console.error('inbound image upload failed:', err?.message ?? err)
+    return null
+  }
+}
+
+// Same idea for documents — re-host into the agency-files bucket so the
+// agent can later attach it to a client (add_client_file_link) or read
+// it back from a tool. Returns { url, fileName, mime, size, extractedText? }.
+// PDF text is extracted via unpdf so the LLM can read the contents
+// inline without needing a separate read_pdf call.
+const _sbForDocs = createSupabaseClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { auth: { persistSession: false } },
+)
+
+async function rehostInboundDocument({ buffer, mime, fileName }) {
+  try {
+    // 1. Re-host bytes
+    const ext = (fileName.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6) || 'bin'
+    const safeStem = (fileName.replace(/\.[^.]+$/, '') || 'doc')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'doc'
+    const path = `wa-inbound/${new Date().toISOString().slice(0, 10)}/${Date.now()}-${safeStem}.${ext}`
+    const { error: upErr } = await _sbForDocs.storage
+      .from('agency-files')
+      .upload(path, buffer, { contentType: mime, upsert: false })
+    if (upErr) {
+      console.error('inbound doc upload failed:', upErr.message)
+      return null
+    }
+    const { data: pub } = _sbForDocs.storage.from('agency-files').getPublicUrl(path)
+
+    // 2. Extract PDF text if applicable. Capped at 8k chars to keep the
+    //    chat-completions prompt under control; the agent can call
+    //    read_pdf for the full thing if it needs more.
+    let extracted = null
+    if (mime === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
+      try {
+        const pdf = await getDocumentProxy(new Uint8Array(buffer))
+        const { text } = await pdfExtractText(pdf, { mergePages: true })
+        extracted = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 8000)
+      } catch (e) {
+        console.warn('PDF text extraction failed:', e?.message ?? e)
+      }
+    }
+
+    return {
+      url: pub?.publicUrl ?? null,
+      fileName,
+      mime,
+      size: buffer.length,
+      extractedText: extracted,
+    }
+  } catch (err) {
+    console.error('inbound doc rehost failed:', err?.message ?? err)
     return null
   }
 }
@@ -255,6 +333,7 @@ async function handleOne(sock, msg) {
   const text = extractText(msg)
   const images = []
   const imageUrls = []
+  const documents = []
   if (msg.message?.imageMessage) {
     try {
       const downloaded = await downloadImage(msg.message.imageMessage)
@@ -269,16 +348,33 @@ async function handleOne(sock, msg) {
     }
   }
 
-  if (!text && images.length === 0) return
+  // Inbound documents (PDF / Word / CSV / etc). Baileys nests
+  // documents-with-captions one level deeper, hence the fallback.
+  const documentMessage =
+    msg.message?.documentMessage ??
+    msg.message?.documentWithCaptionMessage?.message?.documentMessage ??
+    null
+  if (documentMessage) {
+    try {
+      const downloaded = await downloadDocument(documentMessage)
+      const rehosted = await rehostInboundDocument(downloaded)
+      if (rehosted) documents.push(rehosted)
+    } catch (err) {
+      await sock.sendMessage(jid, { text: `Could not read document: ${err?.message ?? 'unknown'}` })
+      return
+    }
+  }
 
-  console.log(`[in ${sender}] ${text || '(image only)'}${images.length ? ` [+${images.length} image]` : ''}${imageUrls.length ? ` [→ rehosted]` : ''}`)
+  if (!text && images.length === 0 && documents.length === 0) return
+
+  console.log(`[in ${sender}] ${text || '(media only)'}${images.length ? ` [+${images.length} image]` : ''}${imageUrls.length ? ` [→ rehosted]` : ''}${documents.length ? ` [+${documents.length} document(s)]` : ''}`)
 
   try { await sock.sendPresenceUpdate('composing', jid) } catch {}
   // Run the entire handler inside an async-local request scope so deep
   // executors (add_reminder, send_quotation_pdf, etc.) can resolve the
   // current sender's JID without their signatures growing a sender param.
   const reply = await withRequest({ senderJid: replyJid, sender }, () =>
-    handleMessage(text, { images, imageUrls, sender }),
+    handleMessage(text, { images, imageUrls, documents, sender }),
   )
   await sock.sendMessage(jid, { text: reply })
   try { await sock.sendPresenceUpdate('paused', jid) } catch {}

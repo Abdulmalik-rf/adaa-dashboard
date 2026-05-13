@@ -887,7 +887,7 @@ const outboundWhatsappTools = [
     function: {
       name: 'send_email',
       description:
-        'Send an email RIGHT NOW via Resend. Use when the user asks to email someone — typically the email pulled off a business card, or a CRM client whose address you already know. Pass client_id to mark the client as contacted in the dashboard. ONE call per email; do NOT loop. For SCHEDULED follow-ups, use add_reminder (no email scheduler yet — the reminder pings the admin, who then sends).',
+        'Send an email RIGHT NOW via Resend, optionally with attachments (PDFs, images, any file). Use when the user asks to email someone — typically the email pulled off a business card, a CRM client whose address you already know, or to forward a PDF the user just sent. Pass client_id to mark the client as contacted. ONE call per email; do NOT loop. For SCHEDULED follow-ups, use add_reminder.',
       parameters: {
         type: 'object',
         properties: {
@@ -899,8 +899,57 @@ const outboundWhatsappTools = [
             description:
               'Optional. CRM client id — the tool stamps last_contacted_at and flips to_contact → lead automatically.',
           },
+          attachments: {
+            type: 'array',
+            description:
+              "Optional file attachments. Each entry is either { url, filename } for a public URL (e.g. the [uploaded_document: …] URL from an inbound WhatsApp PDF, or any client_files.file_path) OR { file_id, filename } pointing at a row in client_files. The tool fetches the bytes server-side and attaches them. Max 5 attachments per email, 20MB total.",
+            items: {
+              type: 'object',
+              properties: {
+                url: { type: 'string', description: 'Public URL to fetch.' },
+                file_id: { type: 'string', description: 'Alternatively, a client_files.id to look up.' },
+                filename: { type: 'string', description: 'Display name shown to the recipient. If omitted, derived from URL/file row.' },
+              },
+            },
+          },
         },
         required: ['to', 'subject', 'text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_whatsapp_file_url',
+      description:
+        "Send any PUBLIC FILE URL as a WhatsApp document attachment to a phone number — works for files that aren't in client_files (e.g. a PDF the user just sent and asked you to forward, an external link, a generated report URL). Pass `url` + `to_phone`. The tool fetches the bytes and ships them. For files that ARE in client_files (company profile, brand guidelines), use send_whatsapp_file instead — same effect but it logs the send to communication_logs and bumps last_contacted_at when client_id is passed.",
+      parameters: {
+        type: 'object',
+        properties: {
+          to_phone: { type: 'string', description: 'Destination phone. Accepts +966… international, 9665… digits-only, or 05… local Saudi format.' },
+          url: { type: 'string', description: 'Public URL of the file to send.' },
+          filename: { type: 'string', description: 'Optional display name. Derived from URL if omitted.' },
+          mime: { type: 'string', description: 'Optional MIME type. Sniffed from URL if omitted.' },
+          caption: { type: 'string', description: 'Optional short text to attach.' },
+          client_id: { type: 'string', description: 'Optional. If forwarding to a CRM client, pass their id to stamp last_contacted_at.' },
+        },
+        required: ['to_phone', 'url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_pdf',
+      description:
+        "Fetch a PDF from a public URL and return the extracted text. Use when (a) the inbound message's [uploaded_document: …] extracted-text block was truncated and you need more of the file, (b) you need to re-read a PDF later in a follow-up turn, or (c) the user pastes a PDF link they want you to summarize / extract from. Returns { text, pages, truncated }. Max 32MB. NEVER call this on a fresh inbound PDF — the inbound handler already extracted up to 8000 chars and embedded them inline.",
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Public PDF URL.' },
+          max_chars: { type: 'integer', description: 'Optional cap on returned text. Default 24000.' },
+        },
+        required: ['url'],
       },
     },
   },

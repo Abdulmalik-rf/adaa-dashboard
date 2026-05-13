@@ -1,11 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Lets the content-submission form push images/video through the
-  // server action without hitting the default 1MB cap.
+  // Lets file/media uploads through the server actions without hitting
+  // the default 1MB cap. 100MB matches the agency-files Storage bucket
+  // ceiling — Storage will reject anything larger anyway.
   experimental: {
     serverActions: {
-      bodySizeLimit: '50mb',
+      bodySizeLimit: '100mb',
     },
   },
   // COEP was previously set to `require-corp` which blocked any cross-origin

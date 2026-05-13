@@ -2,10 +2,8 @@
 
 import { useState, useRef } from 'react'
 import { Upload, Folder, Trash2, Download, File, FileText, Image, Film, Search, Plus } from 'lucide-react'
-import { createClient } from '@supabase/supabase-js'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
-
-const supabaseBrowserClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'your-anon-key')
+import { uploadClientFile } from '@/app/actions/files'
 
 interface FileRecord {
   id: string
@@ -54,10 +52,16 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
   const ar = language === 'ar'
   const [showUpload, setShowUpload] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filterClient, setFilterClient] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [formData, setFormData] = useState({ name: '', category: 'Branding', client_id: '' })
+  // Track the actual File object alongside the displayed name so drag-drop
+  // works the same as click-to-select. Previously dropping a file only
+  // updated formData.name; fileRef.current.files stayed empty and the
+  // submit handler bounced with "fill all required fields".
+  const [pickedFile, setPickedFile] = useState<File | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Categories keep their English keys (so existing DB rows match) but
@@ -85,51 +89,49 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
 
   const handleUpload = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!formData.name.trim() || !formData.client_id || !fileRef.current?.files?.[0]) {
-      alert(ar ? 'يرجى اختيار ملف وملء جميع الحقول المطلوبة.' : 'Please select a file and fill in all required fields.')
+    setUploadError(null)
+
+    // Validation must look at pickedFile (works for both click + drag-drop)
+    // rather than fileRef.current.files (only populated on click).
+    if (!pickedFile) {
+      setUploadError(ar ? 'يرجى اختيار ملف.' : 'Pick a file first.')
+      return
+    }
+    if (!formData.client_id) {
+      setUploadError(ar ? 'يرجى اختيار العميل.' : 'Pick a client.')
       return
     }
 
     setUploading(true)
     try {
-      const file = fileRef.current.files[0]
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`
-      const filePath = `client_${formData.client_id}/${fileName}`
-
-      // Real upload to Supabase
-      const { data: uploadData, error: uploadError } = await supabaseBrowserClient.storage
-        .from('agency-files')
-        .upload(filePath, file)
-
-      if (uploadError) {
-        console.error("Storage upload error:", uploadError)
-        alert((ar ? 'فشل الرفع: ' : 'Upload failed: ') + uploadError.message)
+      const fd = new FormData()
+      fd.set('file', pickedFile)
+      fd.set('client_id', formData.client_id)
+      fd.set('category', formData.category)
+      fd.set('name', formData.name || pickedFile.name)
+      const result = await uploadClientFile(fd)
+      if (!result.ok) {
+        setUploadError(result.error)
         return
       }
-
-      const { data: { publicUrl } } = supabaseBrowserClient.storage.from('agency-files').getPublicUrl(filePath)
-
-      const res = await fetch('/api/files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name,
-          category: formData.category,
-          client_id: formData.client_id,
-          size: file.size,
-          file_type: fileExt || 'file',
-          storage_path: publicUrl,
-        }),
-      })
-      if (res.ok) {
-        setShowUpload(false)
-        setFormData({ name: '', category: 'Branding', client_id: '' })
-        window.location.reload()
-      }
+      setShowUpload(false)
+      setFormData({ name: '', category: 'Branding', client_id: '' })
+      setPickedFile(null)
+      window.location.reload()
+    } catch (err: any) {
+      setUploadError(err?.message ?? 'Unexpected error')
     } finally {
       setUploading(false)
     }
+  }
+
+  // Single entry point both for click-selected and drag-dropped files,
+  // so the validation + preview always see the same File object.
+  const acceptFile = (f: File | null) => {
+    if (!f) return
+    setPickedFile(f)
+    setFormData(prev => ({ ...prev, name: f.name }))
+    setUploadError(null)
   }
 
   const handleDelete = async (file: FileRecord) => {
@@ -280,25 +282,26 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                 <div
                   onClick={() => fileRef.current?.click()}
                   className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
-                    formData.name ? 'border-emerald-500 bg-emerald-50/20 dark:bg-emerald-900/10' : 'border-[hsl(var(--border))] hover:border-[hsl(var(--primary)/0.5)] hover:bg-[hsl(var(--primary)/0.02)]'
+                    pickedFile ? 'border-emerald-500 bg-emerald-50/20 dark:bg-emerald-900/10' : 'border-[hsl(var(--border))] hover:border-[hsl(var(--primary)/0.5)] hover:bg-[hsl(var(--primary)/0.02)]'
                   }`}
                   onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-blue-500', 'bg-blue-50/50') }}
                   onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-blue-500', 'bg-blue-50/50') }}
                   onDrop={(e) => {
                     e.preventDefault();
                     e.currentTarget.classList.remove('border-blue-500', 'bg-blue-50/50');
-                    const f = e.dataTransfer.files?.[0];
-                    if (f) setFormData(prev => ({ ...prev, name: f.name }));
+                    acceptFile(e.dataTransfer.files?.[0] ?? null);
                   }}
                 >
-                  {formData.name ? (
+                  {pickedFile ? (
                      <div className="flex flex-col items-center gap-3 animate-slide-up">
                        <div className="h-16 w-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center shadow-inner">
                          <File className="h-8 w-8" />
                        </div>
                        <div>
-                         <p className="font-bold text-lg text-emerald-700 dark:text-emerald-400">{formData.name}</p>
-                         <p className="text-xs text-emerald-600">{ar ? 'الملف جاهز للرفع' : 'File ready for encryption & pipeline injection'}</p>
+                         <p className="font-bold text-lg text-emerald-700 dark:text-emerald-400">{pickedFile.name}</p>
+                         <p className="text-xs text-emerald-600">
+                           {ar ? `الملف جاهز للرفع (${formatBytes(pickedFile.size)})` : `File ready (${formatBytes(pickedFile.size)})`}
+                         </p>
                        </div>
                      </div>
                   ) : (
@@ -316,10 +319,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                     ref={fileRef}
                     type="file"
                     className="hidden"
-                    onChange={e => {
-                      const f = e.target.files?.[0]
-                      if (f) setFormData(prev => ({ ...prev, name: f.name }))
-                    }}
+                    onChange={e => acceptFile(e.target.files?.[0] ?? null)}
                   />
                 </div>
               </div>
@@ -354,12 +354,21 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                   </div>
                 </div>
               </div>
+              {uploadError && (
+                <div className="rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+                  {uploadError}
+                </div>
+              )}
               <div className={`flex gap-3 pt-4 ${ar ? 'justify-start' : 'justify-end'}`}>
-                <button type="button" onClick={() => setShowUpload(false)} className="btn btn-secondary px-6">
+                <button
+                  type="button"
+                  onClick={() => { setShowUpload(false); setUploadError(null); setPickedFile(null); }}
+                  className="btn btn-secondary px-6"
+                >
                   {ar ? 'إلغاء' : 'Cancel'}
                 </button>
-                <button type="submit" disabled={uploading || !formData.name} className="btn btn-primary px-8 shadow-xl shadow-blue-500/20">
-                  {uploading ? (ar ? 'جاري الرفع…' : 'Processing...') : (ar ? 'رفع آمن وربط' : 'Secure Upload & Link')}
+                <button type="submit" disabled={uploading || !pickedFile} className="btn btn-primary px-8 shadow-xl shadow-blue-500/20">
+                  {uploading ? (ar ? 'جاري الرفع…' : 'Processing...') : (ar ? 'رفع وربط' : 'Upload & Link')}
                 </button>
               </div>
             </form>

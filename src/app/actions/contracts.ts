@@ -13,10 +13,21 @@ export async function createContract(formData: FormData) {
   const status = formData.get('status') as string || 'active'
   const payment_cycle = formData.get('payment_cycle') as string || 'monthly'
   const notes = formData.get('notes') as string
+  const scope = (formData.get('scope') as string | null)?.trim() || null
+
+  // Deliverables come from the modal as a JSON-stringified array. Tolerate
+  // an absent or malformed value so the existing call sites that don't
+  // submit it (e.g. /quotations → contract bridge) still work.
+  let deliverables: any[] = []
+  const rawDeliverables = formData.get('deliverables')
+  if (typeof rawDeliverables === 'string' && rawDeliverables.trim().startsWith('[')) {
+    try { deliverables = JSON.parse(rawDeliverables) } catch { /* ignore — keep [] */ }
+  }
 
   const { error } = await (supabaseClient as any).from('contracts').insert({
     client_id, title, contract_type, start_date, end_date, value,
-    currency: 'SAR', status, payment_cycle, notes
+    currency: 'SAR', status, payment_cycle, notes,
+    scope, deliverables,
   })
 
   if (error) throw new Error("Failed")
@@ -42,4 +53,27 @@ export async function deleteContract(id: string, clientId?: string) {
   if (error) throw new Error("Failed")
   revalidatePath('/contracts')
   if (clientId) revalidatePath(`/clients/${clientId}`)
+}
+
+// Update the plan (scope + deliverables) on an existing contract. The
+// EditContractPlanModal calls this from the workspace contract card.
+// Deliverables is the full ordered list — the modal sends the entire
+// array on every save (no partial patches), which keeps the merge logic
+// here trivial and the client state straightforward.
+export async function updateContractPlan(
+  id: string,
+  clientId: string,
+  scope: string | null,
+  deliverables: Array<{ id: string; title: string; detail?: string; status?: string }>,
+) {
+  const { error } = await (supabaseClient as any)
+    .from('contracts')
+    .update({
+      scope: scope?.trim() || null,
+      deliverables: Array.isArray(deliverables) ? deliverables : [],
+    })
+    .eq('id', id)
+  if (error) throw new Error(`Failed to update contract plan: ${error.message}`)
+  revalidatePath('/contracts')
+  revalidatePath(`/clients/${clientId}`)
 }

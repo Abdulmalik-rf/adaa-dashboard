@@ -11,6 +11,7 @@ import { AddTaskModal } from "@/app/tasks/AddTaskModal"
 import { AddCampaignModal } from "@/app/campaigns/AddCampaignModal"
 import { SubmitPostModal } from "@/app/content/SubmitPostModal"
 import { UploadFileInline } from "./UploadFileInline"
+import { EditContractPlanModal } from "./EditContractPlanModal"
 
 export const revalidate = 0
 
@@ -199,10 +200,44 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
 
                     {/* WHAT IT'S ABOUT */}
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-2">What this covers</p>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">What this covers</p>
+                        <EditContractPlanModal
+                          contractId={contract.id}
+                          clientId={client.id}
+                          contractTitle={contract.title}
+                          initialScope={contract.scope ?? null}
+                          initialDeliverables={Array.isArray(contract.deliverables) ? contract.deliverables : []}
+                        />
+                      </div>
                       <p className="text-sm leading-relaxed">
-                        {contract.scope || contract.notes || <span className="italic text-[hsl(var(--muted-foreground))]">No scope specified — ask the agent &quot;update contract {contract.title}, scope: ...&quot;.</span>}
+                        {contract.scope || contract.notes || <span className="italic text-[hsl(var(--muted-foreground))]">No scope specified — click "Edit plan" to fill it in, or ask the agent.</span>}
                       </p>
+                      {Array.isArray(contract.deliverables) && contract.deliverables.length > 0 && (
+                        <div className="mt-3 space-y-1.5">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Plan / deliverables</p>
+                          <ul className="space-y-1.5">
+                            {contract.deliverables.map((d: any, i: number) => {
+                              const done = d?.status === 'done'
+                              return (
+                                <li key={d?.id || i} className="flex items-start gap-2 text-sm">
+                                  <span className={`mt-0.5 inline-flex h-4 w-4 flex-shrink-0 rounded items-center justify-center border ${
+                                    done
+                                      ? 'bg-emerald-500 border-emerald-500 text-white'
+                                      : 'border-[hsl(var(--border))] bg-[hsl(var(--card))]'
+                                  }`}>
+                                    {done ? '✓' : ''}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className={`font-medium leading-snug ${done ? 'line-through opacity-60' : ''}`}>{d?.title}</p>
+                                    {d?.detail && <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">{d.detail}</p>}
+                                  </div>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        </div>
+                      )}
                     </div>
 
                     {/* TASK SCHEDULE */}

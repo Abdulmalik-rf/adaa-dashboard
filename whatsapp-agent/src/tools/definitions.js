@@ -112,7 +112,7 @@ const remindersTools = [
     function: {
       name: 'add_reminder',
       description:
-        'Create a reminder. The agent will send the user a WhatsApp message at the due date+time. Use for "remind me at 3pm", "follow up on X on Monday", etc.',
+        'Create a reminder. The agent will send a WhatsApp message at the due date+time — by default to the user who set the reminder, or to notify_phone if specified. Use for "remind me at 3pm", "remind +966555... tomorrow", "follow up on X on Monday", etc.',
       parameters: {
         type: 'object',
         properties: {
@@ -129,6 +129,11 @@ const remindersTools = [
           client_company_name: {
             type: 'string',
             description: 'Optional. Company name to link to.',
+          },
+          notify_phone: {
+            type: 'string',
+            description:
+              'Optional. Phone number to deliver the reminder to (e.g. "+966 55 555 5555", "0577602467", "966577602467"). If omitted, the reminder fires to the user who created it. Use this when the request names a recipient ("remind Ahmad at +9665... on Friday").',
           },
         },
         required: ['title', 'due_date', 'type'],
@@ -751,6 +756,36 @@ const commLogTools = [
           },
         },
         required: ['client_id', 'type', 'summary'],
+      },
+    },
+  },
+]
+
+// =============================================================================
+// OUTBOUND WHATSAPP — send a text to ANY number, right now
+// =============================================================================
+
+const outboundWhatsappTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'send_whatsapp_message',
+      description:
+        'Send a WhatsApp text message to an arbitrary phone number RIGHT NOW. Use when the user explicitly asks to message/tell/notify someone whose number they gave you (e.g. "tell +966555... that the meeting moved to 4pm", "send Ahmad at 0541388964 the wire details"). For FUTURE deliveries (reminders, scheduled pings), use add_reminder with notify_phone instead — never call send_whatsapp_message inside a setTimeout loop. ONE call per message.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to_phone: {
+            type: 'string',
+            description:
+              'Destination phone. Accepts +966… international, 9665… digits-only, or 05… local Saudi format. Leading 0 auto-prepends country code 966.',
+          },
+          text: {
+            type: 'string',
+            description: 'Message body. Keep it concise; WhatsApp is not email.',
+          },
+        },
+        required: ['to_phone', 'text'],
       },
     },
   },
@@ -1668,6 +1703,7 @@ export const tools = [
   ...campaignsTools,
   ...teamTools,
   ...commLogTools,
+  ...outboundWhatsappTools,
   ...clientServicesTools,
   ...notificationTools,
   ...contentItemTools,

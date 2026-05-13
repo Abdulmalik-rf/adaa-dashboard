@@ -23,6 +23,18 @@ async function revalidate(paths: string[]) {
 // HELPERS
 // =============================================================================
 
+// Normalize a free-form phone to a WhatsApp JID. Mirrors the WhatsApp agent's
+// helper so the same "notify_phone" semantics work end-to-end. Country default
+// is Saudi Arabia (966) for leading-zero local numbers.
+function phoneToJid(raw: any, defaultCountry = '966'): string | null {
+  if (!raw) return null
+  let digits = String(raw).replace(/\D/g, '')
+  if (!digits) return null
+  if (digits.startsWith('0')) digits = defaultCountry + digits.slice(1)
+  if (digits.length < 8) return null
+  return `${digits}@s.whatsapp.net`
+}
+
 // Only include fields that were actually provided. Strips undefined/null/'' so
 // Supabase updates only what the agent specified.
 function pickDefined(input, fields) {
@@ -163,6 +175,11 @@ async function addReminder(input) {
       ? `Note: no client matched "${input.client_company_name}" — reminder saved but not linked to a client.`
       : null
 
+  // If notify_phone is supplied, route the reminder to that arbitrary number
+  // when the scheduler fires. The dashboard chat agent itself has no
+  // WhatsApp socket — the WhatsApp agent's scheduler picks it up.
+  const notify_jid = phoneToJid(input.notify_phone)
+
   const row = {
     client_id,
     title: input.title,
@@ -172,6 +189,7 @@ async function addReminder(input) {
     due_time: input.due_time ?? null,
     priority: input.priority ?? 'medium',
     status: 'pending',
+    ...(notify_jid ? { notify_jid } : {}),
   }
   const { data, error } = await supabase.from('reminders').insert(row).select().single()
   if (error) throw new Error(`insert reminders failed: ${error.message}`)

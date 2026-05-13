@@ -9,6 +9,19 @@ import { getRequest } from '../context.js'
 // HELPERS
 // =============================================================================
 
+// Normalize a free-form phone (e.g. "+966 54 138 8964", "0577602467",
+// "966577602467") to a WhatsApp JID. Default country is Saudi Arabia (966)
+// for leading-zero local format. Returns null on inputs too short to be valid.
+function phoneToJid(raw, defaultCountry = '966') {
+  if (!raw) return null
+  let digits = String(raw).replace(/\D/g, '')
+  if (!digits) return null
+  // "0577602467" → "966577602467" (drop the leading 0, prepend country code)
+  if (digits.startsWith('0')) digits = defaultCountry + digits.slice(1)
+  if (digits.length < 8) return null
+  return `${digits}@s.whatsapp.net`
+}
+
 // Only include fields that were actually provided. Strips undefined/null/'' so
 // Supabase updates only what the agent specified.
 function pickDefined(input, fields) {
@@ -156,7 +169,13 @@ async function addReminder(input) {
   // back to the same WhatsApp user. Falls back to NULL when called from a
   // non-request context (e.g. dashboard chat widget) — scheduler treats
   // NULL as "use the default first-user JID".
-  const notify_jid = getRequest()?.senderJid ?? null
+  //
+  // If notify_phone is supplied, route the reminder to THAT number instead
+  // (e.g. "remind +966555555555 to send the invoice tomorrow at 9am"). The
+  // scheduler doesn't require notify_jid to be in the allowlist — it sends
+  // to whatever JID is set on the row.
+  const overrideJid = phoneToJid(input.notify_phone)
+  const notify_jid = overrideJid ?? (getRequest()?.senderJid ?? null)
 
   const row = {
     client_id,
@@ -608,6 +627,27 @@ async function logCommunication(input) {
   if (error) throw new Error(`insert communication_logs failed: ${error.message}`)
   await revalidate([`/clients/${input.client_id}`])
   return { id: data.id, type: data.type, summary: data.summary }
+}
+
+// =============================================================================
+// OUTBOUND WHATSAPP — send a message to ANY phone number, right now.
+// =============================================================================
+
+async function sendWhatsappMessage(input) {
+  if (!isReady()) throw new Error('WhatsApp socket is not ready yet')
+  const jid = phoneToJid(input.to_phone)
+  if (!jid) throw new Error(`invalid phone number: "${input.to_phone}"`)
+  const text = String(input.text ?? '').trim()
+  if (!text) throw new Error('text is required')
+
+  const { sock } = getSock()
+  try {
+    await sock.sendMessage(jid, { text })
+  } catch (err) {
+    throw new Error(`send failed: ${err?.message ?? err}`)
+  }
+  console.log(`[outbound] sent to ${jid}: ${text.slice(0, 80)}`)
+  return { sent: true, to: jid, preview: text.slice(0, 80) }
 }
 
 // =============================================================================
@@ -1516,6 +1556,8 @@ const registry = {
   delete_team_member: deleteTeamMember,
   // comm logs
   log_communication: logCommunication,
+  // outbound WhatsApp to arbitrary numbers
+  send_whatsapp_message: sendWhatsappMessage,
   // client services
   add_client_service: addClientService,
   remove_client_service: removeClientService,

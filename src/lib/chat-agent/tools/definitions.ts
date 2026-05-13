@@ -113,7 +113,7 @@ const remindersTools = [
     function: {
       name: 'add_reminder',
       description:
-        'Create a reminder. The agent will send the user a WhatsApp message at the due date+time. Use for "remind me at 3pm", "follow up on X on Monday", etc.',
+        'Create a reminder. The agent will send a WhatsApp message at the due date+time — by default to the admin who set it, or to notify_phone if specified. Use for "remind me at 3pm", "remind +966555... tomorrow", "follow up on X on Monday", etc.',
       parameters: {
         type: 'object',
         properties: {
@@ -130,6 +130,11 @@ const remindersTools = [
           client_company_name: {
             type: 'string',
             description: 'Optional. Company name to link to.',
+          },
+          notify_phone: {
+            type: 'string',
+            description:
+              'Optional. Phone number to deliver the reminder to (e.g. "+966 55 555 5555", "0577602467", "966577602467"). If omitted, the reminder fires to the admin who created it. Use when the request names a recipient.',
           },
         },
         required: ['title', 'due_date', 'type'],

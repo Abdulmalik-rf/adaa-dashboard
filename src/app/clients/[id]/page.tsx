@@ -10,9 +10,11 @@ import { AddContractModal } from "@/app/contracts/AddContractModal"
 import { AddReminderModal } from "@/app/reminders/AddReminderModal"
 import { AddTaskModal } from "@/app/tasks/AddTaskModal"
 import { AddCampaignModal } from "@/app/campaigns/AddCampaignModal"
-import { SubmitPostModal } from "@/app/content/SubmitPostModal"
-import { UploadFileInline } from "./UploadFileInline"
-import { EditContractPlanModal } from "./EditContractPlanModal"
+// Heavy modals (Submit Post / Upload File / Edit Plan) are lazy-loaded —
+// the wrappers below render only a cheap trigger button until the user
+// clicks, then dynamic-import the modal body. Cuts the workspace
+// route's initial bundle.
+import { SubmitPostModalLazy, UploadFileInlineLazy, EditContractPlanModalLazy } from "./LazyModals"
 
 // Bilingual labels — read the locale cookie set by the client-side
 // language toggle so the workspace renders in Arabic when the rest of
@@ -280,7 +282,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">{t.whatThisCovers}</p>
-                        <EditContractPlanModal
+                        <EditContractPlanModalLazy
                           contractId={contract.id}
                           clientId={client.id}
                           contractTitle={contract.title}
@@ -528,7 +530,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       content: (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <SubmitPostModal clients={clientForModal} />
+            <SubmitPostModalLazy clients={clientForModal} />
           </div>
           {(contentItems as any[])?.length === 0 ? (
             <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]">
@@ -665,7 +667,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       content: (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <UploadFileInline
+            <UploadFileInlineLazy
               clientId={client.id}
               existingCategories={Array.from(new Set(((files as any[]) ?? []).map((f: any) => f.category).filter(Boolean))) as string[]}
             />

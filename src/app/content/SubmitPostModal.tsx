@@ -9,11 +9,22 @@ import { submitContentForReview } from '@/app/actions/content-uploads'
 
 type Client = { id: string; company_name: string }
 
-export function SubmitPostModal({ clients }: { clients: Client[] }) {
+export function SubmitPostModal({
+  clients,
+  // Lazy wrapper opens the modal on first mount via defaultOpen, and
+  // gets a callback when the user closes/finishes so it can swap back
+  // to just the trigger button.
+  defaultOpen = false,
+  onClose,
+}: {
+  clients: Client[]
+  defaultOpen?: boolean
+  onClose?: () => void
+}) {
   const { language } = useLanguage()
   const ar = language === 'ar'
 
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [okMessage, setOkMessage] = useState<string | null>(null)
@@ -28,6 +39,7 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
     setOkMessage(null)
     if (preview) URL.revokeObjectURL(preview.url)
     setPreview(null)
+    onClose?.()
   }
 
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {

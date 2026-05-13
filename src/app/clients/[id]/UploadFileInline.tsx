@@ -86,13 +86,21 @@ function formatBytes(bytes: number) {
 export function UploadFileInline({
   clientId,
   existingCategories,
+  // `defaultOpen` lets a lazy wrapper open the modal on first mount.
+  // The wrapper renders just a cheap trigger button until the user clicks
+  // it; only then is this component's chunk fetched, and we want it to
+  // pop open immediately rather than show its own trigger button again.
+  defaultOpen = false,
+  onClose,
 }: {
   clientId: string
   existingCategories: string[]
+  defaultOpen?: boolean
+  onClose?: () => void
 }) {
   const { language, dir } = useLanguage()
   const T = STRINGS[language === 'ar' ? 'ar' : 'en']
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const [picked, setPicked] = useState<File | null>(null)
   const [name, setName] = useState('')
   const [category, setCategory] = useState('')
@@ -111,6 +119,9 @@ export function UploadFileInline({
     setError(null)
     setUploading(false)
     setDone(false)
+    // When this was opened by a lazy wrapper, let the wrapper know so it
+    // can swap back to the trigger-only state.
+    onClose?.()
   }
 
   function accept(f: File | null) {

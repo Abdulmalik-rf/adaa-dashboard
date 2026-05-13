@@ -51,16 +51,22 @@ export function EditContractPlanModal({
   contractTitle,
   initialScope,
   initialDeliverables,
+  // See note in UploadFileInline — lets a lazy wrapper auto-open on
+  // first mount instead of showing this component's own trigger.
+  defaultOpen = false,
+  onClose,
 }: {
   contractId: string
   clientId: string
   contractTitle: string
   initialScope: string | null
   initialDeliverables: Deliverable[]
+  defaultOpen?: boolean
+  onClose?: () => void
 }) {
   const { language, dir } = useLanguage()
   const T = STRINGS[language === 'ar' ? 'ar' : 'en']
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const [scope, setScope] = useState(initialScope ?? '')
   const [items, setItems] = useState<Deliverable[]>(
     Array.isArray(initialDeliverables)
@@ -107,6 +113,7 @@ export function EditContractPlanModal({
           }))
         : [],
     )
+    onClose?.()
   }
 
   async function save() {
@@ -123,6 +130,7 @@ export function EditContractPlanModal({
         }))
       await updateContractPlan(contractId, clientId, scope.trim() || null, clean)
       setOpen(false)
+      onClose?.()
     } catch (err: any) {
       setError(err?.message ?? T.saveFailed)
     } finally {

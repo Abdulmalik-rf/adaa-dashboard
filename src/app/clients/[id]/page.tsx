@@ -1,12 +1,15 @@
 import { supabaseClient } from "@/lib/supabase/client"
 import { notFound, redirect } from "next/navigation"
+import Link from "next/link"
 import { ClientWorkspaceTabs } from "./ClientWorkspaceTabs"
 import { ConnectedAccountsTab } from "./ConnectedAccountsTab"
-import { deleteClient, updateClientStatus } from "@/app/actions/clients"
-import { Trash2, PauseCircle, PlayCircle, Plus, FileSignature, Bell, ListTodo, PlusCircle, User, MapPin, Phone, Mail, Building2, Calendar } from "lucide-react"
+import { deleteClient, updateClientStatus, addClientNote } from "@/app/actions/clients"
+import { Trash2, PauseCircle, PlayCircle, Plus, FileSignature, Bell, ListTodo, PlusCircle, User, MapPin, Phone, Mail, Building2, Calendar, Upload, FileBarChart2, ImagePlus } from "lucide-react"
 import { AddContractModal } from "@/app/contracts/AddContractModal"
 import { AddReminderModal } from "@/app/reminders/AddReminderModal"
 import { AddTaskModal } from "@/app/tasks/AddTaskModal"
+import { AddCampaignModal } from "@/app/campaigns/AddCampaignModal"
+import { SubmitPostModal } from "@/app/content/SubmitPostModal"
 
 export const revalidate = 0
 
@@ -24,7 +27,8 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
     { data: campaigns },
     { data: logs },
     { data: tasks },
-    { data: teamMembers }
+    { data: teamMembers },
+    { data: weeklyReports },
   ] = await Promise.all([
     (supabaseClient as any).from('clients').select('*').eq('id', id).single(),
     (supabaseClient as any).from('client_services').select('*').eq('client_id', id),
@@ -32,11 +36,12 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
     (supabaseClient as any).from('contracts').select('*').eq('client_id', id).order('created_at', { ascending: false }),
     (supabaseClient as any).from('reminders').select('*').eq('client_id', id),
     (supabaseClient as any).from('client_files').select('*').eq('client_id', id),
-    (supabaseClient as any).from('content_items').select('*').eq('client_id', id),
-    (supabaseClient as any).from('ad_campaigns').select('*').eq('client_id', id),
-    (supabaseClient as any).from('communication_logs').select('*').eq('client_id', id),
+    (supabaseClient as any).from('content_items').select('*').eq('client_id', id).order('publish_date', { ascending: true }),
+    (supabaseClient as any).from('ad_campaigns').select('*').eq('client_id', id).order('start_date', { ascending: false, nullsFirst: false }),
+    (supabaseClient as any).from('communication_logs').select('*').eq('client_id', id).order('date', { ascending: false }),
     (supabaseClient as any).from('tasks').select('*').eq('client_id', id).order('due_date', { ascending: true, nullsFirst: false }),
-    (supabaseClient as any).from('team_members').select('id, full_name, role, job_title, email, phone, whatsapp, status')
+    (supabaseClient as any).from('team_members').select('id, full_name, role, job_title, email, phone, whatsapp, status'),
+    (supabaseClient as any).from('weekly_reports').select('id, report_number, period_start, period_end, status, issue_date').eq('client_id', id).order('issue_date', { ascending: false }),
   ])
 
   if (error || !client) {
@@ -57,6 +62,13 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   const deleteAction = deleteClient.bind(null, id)
   const setStatusActive = updateClientStatus.bind(null, id, 'active')
   const setStatusPaused = updateClientStatus.bind(null, id, 'paused')
+  const addNoteAction = addClientNote.bind(null, id)
+
+  const clientForModal = [{ id: client.id, company_name: client.company_name }]
+  const fmtDate = (d: string | null | undefined) => {
+    if (!d) return '—'
+    try { return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) } catch { return d }
+  }
 
   const statusBadge: Record<string, string> = {
     active: 'badge-active',
@@ -348,13 +360,209 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
+      name: 'Campaigns',
+      content: (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <AddCampaignModal clients={clientForModal} />
+          </div>
+          {(campaigns as any[])?.length === 0 ? (
+            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]">
+              <p>No campaigns yet.</p>
+              <p className="text-xs mt-1 italic">
+                Launch one with "+ New Campaign" or ask the agent: "create a Ramadan campaign for {client.company_name}, budget 5000 SAR".
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {(campaigns as any[])?.map((c: any) => {
+                const statusBadgeClass =
+                  c.status === 'active' ? 'badge-active' :
+                  c.status === 'paused' ? 'badge-warning' :
+                  c.status === 'completed' ? 'badge-secondary' :
+                  'badge-secondary'
+                return (
+                  <div key={c.id} className="premium-card p-5 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-sm truncate">{c.name}</h4>
+                        {c.objective && <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{c.objective}</p>}
+                      </div>
+                      <span className={`badge text-[10px] flex-shrink-0 ${statusBadgeClass}`}>{c.status}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] font-bold">Budget</p>
+                        <p className="font-semibold">{c.budget != null ? `${Number(c.budget).toLocaleString()} SAR` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] font-bold">Period</p>
+                        <p className="font-semibold">{fmtDate(c.start_date)} → {fmtDate(c.end_date)}</p>
+                      </div>
+                    </div>
+                    {c.performance_summary && (
+                      <p className="text-xs italic pt-2 border-t border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">{c.performance_summary}</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )
+    },
+    {
+      name: 'Content',
+      content: (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <SubmitPostModal clients={clientForModal} />
+          </div>
+          {(contentItems as any[])?.length === 0 ? (
+            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]">
+              <p>No posts yet.</p>
+              <p className="text-xs mt-1 italic">Submit a video or photo with caption + platform via the button above.</p>
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {(contentItems as any[])?.map((p: any) => {
+                const isVideo = (p.media_url || '').match(/\.(mp4|mov|webm)$/i)
+                const status = p.schedule_status || p.status || 'idea'
+                const statusBadgeClass =
+                  status === 'published' ? 'badge-active' :
+                  status === 'approved' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                  status === 'scheduled' ? 'badge-warning' :
+                  status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400' :
+                  'badge-secondary'
+                return (
+                  <div key={p.id} className="premium-card overflow-hidden flex flex-col">
+                    <div className="aspect-video bg-[hsl(var(--muted)/0.4)] flex items-center justify-center overflow-hidden">
+                      {p.media_url ? (
+                        isVideo ? (
+                          <video src={p.media_url} className="w-full h-full object-cover" muted />
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.media_url} alt={p.title} className="w-full h-full object-cover" />
+                        )
+                      ) : (
+                        <ImagePlus className="h-8 w-8 text-[hsl(var(--muted-foreground))] opacity-30" />
+                      )}
+                    </div>
+                    <div className="p-3 space-y-1.5 flex-1 flex flex-col">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-sm leading-tight line-clamp-2">{p.title}</p>
+                        <span className={`badge text-[9px] flex-shrink-0 ${statusBadgeClass}`}>{status}</span>
+                      </div>
+                      <div className="text-[10px] text-[hsl(var(--muted-foreground))] flex items-center gap-2 capitalize">
+                        <span>{p.platform}</span>
+                        <span>·</span>
+                        <span>{p.content_type}</span>
+                        <span>·</span>
+                        <span>{fmtDate(p.publish_date)}</span>
+                      </div>
+                      {p.caption && (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] line-clamp-2 mt-1">{p.caption}</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )
+    },
+    {
+      name: 'Notes',
+      content: (
+        <div className="space-y-4">
+          <div className="premium-card p-5">
+            <form action={addNoteAction} className="flex flex-col gap-2 md:flex-row md:items-start">
+              <textarea
+                name="summary"
+                required
+                rows={2}
+                placeholder="Quick note about this client — call, meeting, anything worth keeping…"
+                className="form-input flex-1 resize-none"
+              />
+              <button type="submit" className="btn btn-primary md:self-stretch md:px-6">
+                <Plus className="h-4 w-4" /> Add note
+              </button>
+            </form>
+          </div>
+          {(logs as any[])?.length === 0 ? (
+            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]">
+              <p>No notes or activity yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(logs as any[])?.map((entry: any) => (
+                <div key={entry.id} className="premium-card p-4">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <span className="badge badge-secondary text-[10px] capitalize">{entry.type}</span>
+                    <span className="text-[10px] text-[hsl(var(--muted-foreground))]">{fmtDate(entry.date)}</span>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap">{entry.summary}</p>
+                  {entry.notes && (
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 italic">{entry.notes}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )
+    },
+    {
+      name: 'Weekly Reports',
+      content: (
+        <div className="space-y-4">
+          <div className="premium-card p-4 text-xs text-[hsl(var(--muted-foreground))] flex items-center gap-2">
+            <FileBarChart2 className="h-4 w-4" />
+            Weekly reports are drafted by the agent. Ask it: "make a weekly report for {client.company_name}".
+          </div>
+          {(weeklyReports as any[])?.length === 0 ? (
+            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]">
+              <p>No reports yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(weeklyReports as any[])?.map((r: any) => (
+                <Link key={r.id} href={`/reports/${r.id}/edit`} className="block">
+                  <div className="premium-card p-4 hover:border-[hsl(var(--primary))] transition-colors">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-bold text-sm">{r.report_number}</p>
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
+                          {fmtDate(r.period_start)} → {fmtDate(r.period_end)}
+                          {r.issue_date && <> · issued {fmtDate(r.issue_date)}</>}
+                        </p>
+                      </div>
+                      <span className={`badge text-[10px] ${r.status === 'sent' ? 'badge-active' : r.status === 'archived' ? 'badge-secondary' : 'badge-warning'}`}>{r.status}</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )
+    },
+    {
       name: 'Files',
       content: (
         <div className="space-y-4">
+          <div className="flex justify-end">
+            <Link href="/files">
+              <button className="btn btn-primary btn-sm">
+                <Upload className="h-4 w-4" /> Upload file
+              </button>
+            </Link>
+          </div>
           <div className="premium-card p-6">
             <h3 className="text-lg font-bold mb-4">Documents & Assets</h3>
             {(files as any[])?.length === 0 ? (
-               <p className="text-sm text-[hsl(var(--muted-foreground))] text-center py-6">No files uploaded.</p>
+               <p className="text-sm text-[hsl(var(--muted-foreground))] text-center py-6">No files uploaded yet — use the Upload button to add documents, briefs, or branding.</p>
             ) : (
               <div className="space-y-3">
                 {(files as any[])?.map((file: any) => (
@@ -363,7 +571,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                       <p className="text-sm font-medium">{file.name}</p>
                       <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase mt-0.5">{file.category || 'Asset'} • {file.file_type}</p>
                     </div>
-                    <a href={file.storage_path} download className="btn btn-ghost btn-xs text-[hsl(var(--primary))]">Download</a>
+                    <a href={file.file_path ?? file.storage_path} download className="btn btn-ghost btn-xs text-[hsl(var(--primary))]">Download</a>
                   </div>
                 ))}
               </div>

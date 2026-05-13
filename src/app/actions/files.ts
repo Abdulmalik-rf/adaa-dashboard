@@ -11,7 +11,13 @@ const BUCKET = 'agency-files'
 // directly from the browser to Supabase Storage (the bucket policies are
 // public-insertable), so this action never has to receive the file body
 // — sidesteps Hostinger's reverse-proxy body-size cap on shared hosting
-// and the 30-60s request timeout that was making 19MB uploads hang.
+// and the 30-60s request timeout that was making large uploads hang.
+//
+// IMPORTANT: the actual `client_files` table has columns named
+// `file_path` and `file_size` (matching the chat-agent's writer in
+// src/lib/chat-agent/tools/executors.ts). An earlier version of this
+// code used `storage_path` / `size` / `uploaded_by`, which don't exist
+// — every insert was failing with "Could not find the 'size' column".
 export async function registerClientFile(input: {
   client_id: string
   category: string
@@ -34,9 +40,8 @@ export async function registerClientFile(input: {
         category: input.category || 'Other',
         client_id: input.client_id,
         file_type: input.file_type || 'bin',
-        size: input.size || 0,
-        storage_path: input.storage_path,
-        uploaded_by: me.id,
+        file_size: input.size || 0,
+        file_path: input.storage_path,
       })
       .select('id')
       .single()
@@ -59,15 +64,15 @@ export async function uploadClientFile(_formData: FormData) {
 
 export async function deleteFileRecord(id: string) {
   // Best-effort: also remove the underlying storage object so we don't
-  // leak files. We resolve the path from storage_path. Public URLs look
-  // like https://<project>.supabase.co/storage/v1/object/public/agency-files/<path>
+  // leak files. Public URLs look like
+  // https://<project>.supabase.co/storage/v1/object/public/agency-files/<path>
   try {
     const { data: row } = await (supabaseClient as any)
       .from('client_files')
-      .select('storage_path')
+      .select('file_path')
       .eq('id', id)
       .maybeSingle()
-    const url: string | undefined = row?.storage_path
+    const url: string | undefined = row?.file_path
     if (url) {
       const marker = `/object/public/${BUCKET}/`
       const ix = url.indexOf(marker)
@@ -82,8 +87,8 @@ export async function deleteFileRecord(id: string) {
   revalidatePath('/files')
 }
 
-// LEGACY: kept around in case anything outside the Files page calls it.
-// New code should use uploadClientFile() above.
+// LEGACY: superseded by registerClientFile(). Kept exported so any
+// in-flight client bundle still pointing here keeps compiling.
 export async function createFileRecord(formData: FormData) {
   const name = formData.get('name') as string
   const category = formData.get('category') as string
@@ -93,9 +98,8 @@ export async function createFileRecord(formData: FormData) {
   await (supabaseClient as any).from('client_files').insert({
     name, category, client_id,
     file_type,
-    size: 0,
-    storage_path: `/files/${client_id}/${name}`,
-    uploaded_by: 'tm1',
+    file_size: 0,
+    file_path: `/files/${client_id}/${name}`,
   })
 
   revalidatePath('/files')

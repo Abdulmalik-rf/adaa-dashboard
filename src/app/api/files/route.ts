@@ -10,10 +10,9 @@ export async function POST(req: NextRequest) {
         name: data.name,
         category: data.category,
         client_id: data.client_id,
-        size: data.size,
+        file_size: data.size ?? data.file_size,
         file_type: data.file_type,
-        storage_path: data.storage_path,
-        uploaded_by: 'tm1',
+        file_path: data.storage_path ?? data.file_path,
       })
       .select()
     if (error) return NextResponse.json({ error: error.message }, { status: 400 })

@@ -23,14 +23,18 @@ function sanitizeFilename(name: string): string {
   return `${base}.${ext}`
 }
 
+// Matches the actual `client_files` columns on the deployed DB.
+// Earlier code assumed `size`/`storage_path`; those columns don't exist
+// (table has `file_size`/`file_path`), which is why uploads were
+// silently failing on the metadata insert step.
 interface FileRecord {
   id: string
   client_id: string
   name: string
   category: string
-  size: number
+  file_size: number | null
   file_type: string
-  storage_path: string
+  file_path: string
   created_at: string
 }
 
@@ -103,7 +107,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
 
   const findClient = (id: string) => clients.find(c => c.id === id)?.company_name || '—'
 
-  const totalSize = files.reduce((acc, f) => acc + (f.size || 0), 0)
+  const totalSize = files.reduce((acc, f) => acc + (f.file_size || 0), 0)
 
   const handleUpload = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -287,7 +291,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                     <span className="text-xs font-medium text-[hsl(var(--muted-foreground))]">{categoryLabel(file.category)}</span>
                   </td>
                   <td>
-                    <span className="text-xs text-[hsl(var(--muted-foreground))]">{formatBytes(file.size || 0)}</span>
+                    <span className="text-xs text-[hsl(var(--muted-foreground))]">{formatBytes(file.file_size || 0)}</span>
                   </td>
                   <td>
                     <span className="text-xs text-[hsl(var(--muted-foreground))]">
@@ -296,7 +300,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                   </td>
                   <td className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <a href={file.storage_path} download className="btn btn-ghost btn-xs text-[hsl(var(--primary))]">
+                      <a href={file.file_path} download className="btn btn-ghost btn-xs text-[hsl(var(--primary))]">
                         <Download className="h-3.5 w-3.5" />
                       </a>
                       <button

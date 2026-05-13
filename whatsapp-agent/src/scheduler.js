@@ -13,9 +13,17 @@ const GRACE_PERIOD_SECONDS = 24 * 60 * 60 // 24h
 const DEFAULT_TIME = '09:00:00'
 const FIRED_FILE = path.join('./baileys_auth', 'fired_reminders.json')
 const FIRED_NOTIFS_FILE = path.join('./baileys_auth', 'fired_notifications.json')
+// Single dedupe file for the new date-anchored event ticks (contracts,
+// weekly reports, content publish dates). Each entry is a string of the
+// form `<kind>-<id>` so different kinds can't collide.
+const FIRED_EVENTS_FILE = path.join('./baileys_auth', 'fired_events.json')
+// How many days ahead of an end_date the contract tick should warn. KSA
+// agencies typically want a 7-day heads-up to start the renewal convo.
+const CONTRACT_END_LEAD_DAYS = 7
 
 let firedSet = new Set()
 let firedNotifSet = new Set()
+let firedEventSet = new Set()
 let started = false
 
 async function loadFired() {
@@ -32,6 +40,22 @@ async function loadFired() {
     if (Array.isArray(arr)) firedNotifSet = new Set(arr)
   } catch {
     // first run
+  }
+  try {
+    const data = await fs.readFile(FIRED_EVENTS_FILE, 'utf-8')
+    const arr = JSON.parse(data)
+    if (Array.isArray(arr)) firedEventSet = new Set(arr)
+  } catch {
+    // first run
+  }
+}
+
+async function saveFiredEvents() {
+  try {
+    await fs.mkdir(path.dirname(FIRED_EVENTS_FILE), { recursive: true })
+    await fs.writeFile(FIRED_EVENTS_FILE, JSON.stringify([...firedEventSet]))
+  } catch (err) {
+    console.error('[scheduler] save fired events list failed:', err?.message ?? err)
   }
 }
 
@@ -235,6 +259,153 @@ async function tickNotifications(sock, notifyJids) {
   }
 }
 
+// =============================================================================
+// Date-anchored events. Polls contracts / weekly_reports / content_items
+// and fires WhatsApp pings when a date arrives. Routing:
+//   - weekly reports + content items: via assignee_id → team_members.whatsapp
+//   - contracts: admin (no per-contract owner field)
+// Dedupes via firedEventSet using `<kind>-<id>` keys, so e.g. a contract's
+// start_date fires once even if the agent restarts.
+// =============================================================================
+
+// Look up an assignee's WhatsApp JID from team_members.id. Returns the
+// fallback admin JID if the assignee has no phone on file or it's not in
+// the agent's allowlist.
+async function resolveAssigneeJid(assigneeId, notifyJids) {
+  const fallbackJid = notifyJids[0]
+  if (!assigneeId) return fallbackJid
+  const { data: tm } = await supabase
+    .from('team_members')
+    .select('whatsapp, phone')
+    .eq('id', assigneeId)
+    .maybeSingle()
+  const jid = jidFromPhone(tm?.whatsapp || tm?.phone)
+  return jid && notifyJids.includes(jid) ? jid : fallbackJid
+}
+
+async function fireEvent(sock, target, body, dedupeKey, label) {
+  try {
+    await sock.sendMessage(target, { text: body })
+    firedEventSet.add(dedupeKey)
+    await saveFiredEvents()
+    console.log(`[scheduler/events] fired ${label} → ${target}`)
+  } catch (err) {
+    console.error(`[scheduler/events] send failed for ${label}:`, err?.message ?? err)
+  }
+}
+
+// Contracts: fires once on start_date and once when end_date is within
+// CONTRACT_END_LEAD_DAYS. Routed to admin.
+async function tickContractDates(sock, notifyJids, today) {
+  const fallbackJid = notifyJids[0]
+  if (!fallbackJid) return
+  const inAWeek = new Date(today + 'T00:00:00Z')
+  inAWeek.setUTCDate(inAWeek.getUTCDate() + CONTRACT_END_LEAD_DAYS)
+  const inAWeekIso = inAWeek.toISOString().slice(0, 10)
+
+  const { data, error } = await supabase
+    .from('contracts')
+    .select('id, title, start_date, end_date, status, client_id, clients(company_name, full_name)')
+    .or(
+      // start_date == today OR end_date in [today, today+lead]
+      `start_date.eq.${today},and(end_date.gte.${today},end_date.lte.${inAWeekIso})`,
+    )
+    .neq('status', 'cancelled')
+  if (error) {
+    if (!String(error.message).toLowerCase().includes('column')) {
+      console.error('[scheduler/events] contracts query failed:', error.message)
+    }
+    return
+  }
+  for (const c of data ?? []) {
+    const company = c.clients?.company_name || 'a client'
+    if (c.start_date === today) {
+      const key = `contract-start-${c.id}`
+      if (!firedEventSet.has(key)) {
+        const body = `📄 Contract starts today\n\n*${c.title}*\nClient: ${company}\n\nKick-off day — make sure the team's plan is ready.`
+        await fireEvent(sock, fallbackJid, body, key, `contract-start ${c.id}`)
+      }
+    }
+    if (c.end_date) {
+      // End-date warning fires on each day in the lead window. We dedupe
+      // by id + the day it actually fired, so the admin gets one ping per
+      // day during the lead-up rather than nothing at all.
+      const daysOut = Math.round(
+        (new Date(c.end_date + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86_400_000,
+      )
+      if (daysOut === 0 || daysOut === CONTRACT_END_LEAD_DAYS) {
+        const key = `contract-end-${c.id}-d${daysOut}`
+        if (!firedEventSet.has(key)) {
+          const word = daysOut === 0 ? 'ends today' : `ends in ${CONTRACT_END_LEAD_DAYS} days`
+          const body = `⏳ Contract ${word}\n\n*${c.title}*\nClient: ${company}\nEnds: ${c.end_date}\n\nTime to start the renewal conversation.`
+          await fireEvent(sock, fallbackJid, body, key, `contract-end ${c.id} d=${daysOut}`)
+        }
+      }
+    }
+  }
+}
+
+// Weekly reports: when issue_date <= today AND status='draft', ping the
+// assignee that the report is now due to write.
+async function tickWeeklyReportDue(sock, notifyJids, today) {
+  const { data, error } = await supabase
+    .from('weekly_reports')
+    .select('id, report_number, customer_company, period_start, period_end, issue_date, status, assignee_id')
+    .eq('status', 'draft')
+    .lte('issue_date', today)
+    .not('assignee_id', 'is', null)
+    .limit(50)
+  if (error) {
+    if (!String(error.message).toLowerCase().includes('column')) {
+      console.error('[scheduler/events] weekly_reports query failed:', error.message)
+    }
+    return
+  }
+  for (const r of data ?? []) {
+    const key = `report-due-${r.id}`
+    if (firedEventSet.has(key)) continue
+    const target = await resolveAssigneeJid(r.assignee_id, notifyJids)
+    const body =
+      `📊 Weekly report due\n\n*${r.report_number}*\n` +
+      `Client: ${r.customer_company || '—'}\n` +
+      `Period: ${r.period_start} → ${r.period_end}\n` +
+      `Due: ${r.issue_date}\n\n` +
+      `Open the dashboard → Weekly Reports to fill it out.`
+    await fireEvent(sock, target, body, key, `report-due ${r.report_number}`)
+  }
+}
+
+// Content items: when publish_date == today AND schedule_status is
+// 'scheduled' or 'approved' AND the post has an assignee, ping them.
+async function tickContentPublishDates(sock, notifyJids, today) {
+  const { data, error } = await supabase
+    .from('content_items')
+    .select('id, title, platform, content_type, publish_date, publish_time, schedule_status, assignee_id, client_id, clients(company_name)')
+    .eq('publish_date', today)
+    .in('schedule_status', ['scheduled', 'approved'])
+    .not('assignee_id', 'is', null)
+    .limit(50)
+  if (error) {
+    if (!String(error.message).toLowerCase().includes('column')) {
+      console.error('[scheduler/events] content_items query failed:', error.message)
+    }
+    return
+  }
+  for (const c of data ?? []) {
+    const key = `content-publish-${c.id}`
+    if (firedEventSet.has(key)) continue
+    const target = await resolveAssigneeJid(c.assignee_id, notifyJids)
+    const company = c.clients?.company_name || '—'
+    const when = c.publish_time ? ` at ${String(c.publish_time).slice(0, 5)}` : ''
+    const body =
+      `📸 Content publishes today${when}\n\n*${c.title}*\n` +
+      `Client: ${company}\n` +
+      `${c.platform} · ${c.content_type}\n\n` +
+      `Make sure it's queued in the scheduler / posted on time.`
+    await fireEvent(sock, target, body, key, `content-publish ${c.id}`)
+  }
+}
+
 export async function startScheduler(sock, notifyJids) {
   if (started) return
   started = true
@@ -253,6 +424,7 @@ export async function startScheduler(sock, notifyJids) {
   )
 
   const runTick = async () => {
+    const today = nowInTimezone(tz).slice(0, 10)
     try {
       await tick(sock, jids, tz)
     } catch (err) {
@@ -262,6 +434,21 @@ export async function startScheduler(sock, notifyJids) {
       await tickNotifications(sock, jids)
     } catch (err) {
       console.error('[scheduler] notif tick error:', err?.message ?? err)
+    }
+    try {
+      await tickContractDates(sock, jids, today)
+    } catch (err) {
+      console.error('[scheduler] contract-dates tick error:', err?.message ?? err)
+    }
+    try {
+      await tickWeeklyReportDue(sock, jids, today)
+    } catch (err) {
+      console.error('[scheduler] weekly-report tick error:', err?.message ?? err)
+    }
+    try {
+      await tickContentPublishDates(sock, jids, today)
+    } catch (err) {
+      console.error('[scheduler] content-publish tick error:', err?.message ?? err)
     }
   }
 

@@ -171,3 +171,36 @@ Add a new capability in three steps:
 1. Add a tool in `src/tools/definitions.js` using the `{ type: "function", function: {...} }` OpenAI shape.
 2. Add the executor function in `src/tools/executors.js`, register it in `registry`, and if it writes data add a `revalidate([...])` call with the affected paths.
 3. That's it — the model picks up the new tool automatically on next message.
+
+## Auto-pings for date-anchored events
+
+In addition to the dashboard's `notifications` table relay (which already
+forwards task assignments, content reviews, etc. to the assignee's
+WhatsApp), the scheduler also polls three more tables every 30 seconds
+and sends WhatsApp pings on date-anchored milestones:
+
+| Tick | Fires when | Routed to |
+|---|---|---|
+| Contract dates | `contracts.start_date == today` OR `end_date` within 7 days | Admin (first `NOTIFY_JIDS`) — contracts have no per-row owner |
+| Weekly report due | `weekly_reports.status='draft'` AND `issue_date <= today` AND `assignee_id` set | The team member at `assignee_id` (via their `team_members.whatsapp` / `.phone`) |
+| Content publish | `content_items.publish_date == today` AND `schedule_status` ∈ {scheduled, approved} AND `assignee_id` set | The team member at `assignee_id` |
+
+For per-assignee routing to work the team member needs:
+1. A row in `team_members` with `whatsapp` or `phone` filled in (digits, country code optional)
+2. The resulting JID (`<digits>@s.whatsapp.net`) to appear in the agent's
+   `NOTIFY_JIDS` env var. If it's not in the allowlist, the message
+   falls back to admin so it doesn't get lost.
+
+Dedupe lives in `baileys_auth/fired_events.json` — each fired event gets
+a `<kind>-<id>[-dN]` key so restarts never double-send.
+
+**Updating the agent after a code change:**
+
+```bash
+cd whatsapp-agent
+git pull
+npm install   # if dependencies changed
+# Kill the running agent (Ctrl+C in its terminal) then:
+node src/index.js   # or start-agent.cmd on Windows
+```
+

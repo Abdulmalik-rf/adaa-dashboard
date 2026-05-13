@@ -759,6 +759,56 @@ const commLogTools = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'find_communication_logs',
+      description:
+        "List communication logs (calls, meetings, emails, etc) on a client's record. Use to answer 'show me Acme's recent calls', 'what did we last email Hisham', 'pull the communication history for X'.",
+      parameters: {
+        type: 'object',
+        properties: {
+          client_id: { type: 'string', description: 'Optional. Filters to one client. Omit to search globally.' },
+          client_company_name: { type: 'string', description: "Optional. Resolved to client_id via find_client." },
+          type: { type: 'string', description: 'Optional type filter: call / meeting / email / whatsapp / note / site_visit.' },
+          since_iso: { type: 'string', description: 'Optional. Only return logs after this ISO date/time.' },
+          limit: { type: 'integer', description: 'Default 20.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_communication_log',
+      description:
+        'Edit an existing communication log entry — fix a typo, append context, recategorize the type, change the date. Need the id (from find_communication_logs).',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          type: { type: 'string' },
+          summary: { type: 'string' },
+          notes: { type: 'string' },
+          date: { type: 'string', description: 'ISO timestamp.' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_communication_log',
+      description:
+        'Remove a communication log entry. DESTRUCTIVE — confirm with the user before calling.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
 ]
 
 // =============================================================================
@@ -907,6 +957,38 @@ const notificationTools = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'add_notification',
+      description:
+        "Push a custom notification into the dashboard bell (and, via the existing scheduler, onto the recipient's WhatsApp). Use for one-off heads-up messages that aren't already covered by the automatic notification paths — e.g. 'ping Hisham that the client is calling at 4pm', 'tell the team Acme's invoice is overdue', 'remind Sara about the offsite tomorrow'. For TIMED reminders use add_reminder instead — that has its own scheduler. Pass user_id (an auth user id) to target a specific person, or omit/null for an admin-broadcast.",
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'One-line headline shown in the bell.' },
+          message: { type: 'string', description: 'Body text. Keep tight.' },
+          user_id: {
+            type: 'string',
+            description:
+              'Optional. Auth user id (NOT team_member.id) to target. Resolve via team_members.user_id if you only know the person by name. Omit for an admin-broadcast (notifies every admin).',
+          },
+          team_member_id: {
+            type: 'string',
+            description:
+              'Optional convenience: pass team_members.id and the tool will look up the matching auth user_id automatically. Use this when you only know the team member, not their auth user.',
+          },
+          related_id: { type: 'string', description: 'Optional UUID — id of the underlying entity (task, contract, client...) the notification is about. The dashboard uses this to deep-link.' },
+          type: {
+            type: 'string',
+            description:
+              "Notification type. Common values: 'task_assigned', 'task_completed', 'contract_alert', 'content_pending_review', 'content_approved', 'content_rejected', 'report_assigned', 'system'. Defaults to 'system'.",
+          },
+        },
+        required: ['title', 'message'],
+      },
+    },
+  },
 ]
 
 // =============================================================================
@@ -1028,6 +1110,27 @@ const clientFileTools = [
           file_type: { type: 'string', description: 'MIME or short label, e.g. "application/pdf" or "pdf".' },
         },
         required: ['client_id', 'name', 'file_path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_client_file',
+      description:
+        'Rename a file, change its category, reassign to a different client, or fix the URL/MIME. Used for "rename the brand-guidelines.pdf to brand-2026.pdf", "move that contract from Acme to TSSC", "recategorize this as invoice not design".',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          category: { type: 'string' },
+          client_id: { type: 'string', description: 'Reassign to a different client.' },
+          file_type: { type: 'string' },
+          file_path: { type: 'string', description: 'New URL.' },
+          file_size: { type: 'number', description: 'Bytes.' },
+        },
+        required: ['id'],
       },
     },
   },
@@ -1357,6 +1460,26 @@ const weeklyReportTools = [
         type: 'object',
         properties: { id: { type: 'string' } },
         required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'schedule_weekly_reports',
+      description:
+        "Pre-create N consecutive weekly report drafts for a client and assign them to a team member, the same way the new-client wizard does. Use for 'schedule 12 weeks of reports for Acme to Hisham', 'set up the reporting cadence for X', 'add a year of weekly reports for the new client and put Sara in charge'. Each report's period_end becomes a calendar event automatically, and the assignee gets a notification (which the agent forwards to their WhatsApp). Each report row defaults to status='draft', empty services [], period_start at the chosen Monday, period_end +6 days, issue_date +7 days.",
+      parameters: {
+        type: 'object',
+        properties: {
+          client_id: { type: 'string', description: 'Resolve via find_client if needed.' },
+          client_company_name: { type: 'string', description: "Alternative to client_id — the tool resolves." },
+          assignee_team_member_id: { type: 'string', description: 'team_members.id of the responsible person. Resolve via find_team_member.' },
+          assignee_name: { type: 'string', description: "Alternative — full name of the team member. The tool looks up the id." },
+          weeks: { type: 'integer', description: 'How many weekly reports to create. 1-52. Defaults to 12.' },
+          start_date_iso: { type: 'string', description: "ISO date for period_start of the FIRST report. Defaults to next Monday." },
+        },
+        required: [],
       },
     },
   },

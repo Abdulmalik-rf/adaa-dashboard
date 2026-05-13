@@ -1737,6 +1737,205 @@ async function updateAgencySettings(input) {
 }
 
 // =============================================================================
+// COMMUNICATION-LOG CRUD (find/update/delete — the insert is logCommunication above)
+// =============================================================================
+
+async function findCommunicationLogs(input) {
+  let q = supabase.from('communication_logs').select('id, client_id, type, summary, notes, date, created_at').order('date', { ascending: false })
+  let clientId = input.client_id
+  if (!clientId && input.client_company_name) {
+    const { data: c } = await supabase.from('clients').select('id').ilike('company_name', `%${input.client_company_name}%`).limit(1).maybeSingle()
+    clientId = c?.id
+  }
+  if (clientId) q = q.eq('client_id', clientId)
+  if (input.type) q = q.eq('type', input.type)
+  if (input.since_iso) q = q.gte('date', input.since_iso)
+  q = q.limit(Math.max(1, Math.min(200, input.limit ?? 20)))
+  const { data, error } = await q
+  if (error) throw new Error(`find communication_logs failed: ${error.message}`)
+  return { count: data.length, rows: data }
+}
+
+async function updateCommunicationLog(input) {
+  const patch = {}
+  for (const k of ['type', 'summary', 'notes', 'date']) {
+    if (input[k] !== undefined) patch[k] = input[k]
+  }
+  if (Object.keys(patch).length === 0) return { updated: false, reason: 'nothing to update' }
+  const { data, error } = await supabase
+    .from('communication_logs').update(patch).eq('id', input.id).select('id, client_id').single()
+  if (error) throw new Error(`update communication_logs failed: ${error.message}`)
+  if (data?.client_id) await revalidate([`/clients/${data.client_id}`])
+  return { updated: true, id: data.id, patched: Object.keys(patch) }
+}
+
+async function deleteCommunicationLog(input) {
+  const { data: existing } = await supabase
+    .from('communication_logs').select('client_id').eq('id', input.id).maybeSingle()
+  const { error } = await supabase.from('communication_logs').delete().eq('id', input.id)
+  if (error) throw new Error(`delete communication_logs failed: ${error.message}`)
+  if (existing?.client_id) await revalidate([`/clients/${existing.client_id}`])
+  return { deleted: true, id: input.id }
+}
+
+// =============================================================================
+// CUSTOM NOTIFICATION INSERT (the rest of the notification tools live elsewhere)
+// =============================================================================
+
+async function addNotification(input) {
+  const title = String(input.title ?? '').trim()
+  const message = String(input.message ?? '').trim()
+  if (!title) throw new Error('title is required')
+  if (!message) throw new Error('message is required')
+
+  // Resolve target user. Three paths in order of specificity:
+  //   1. Explicit user_id (auth uuid) → use directly
+  //   2. team_member_id → look up team_members.user_id
+  //   3. Neither → admin-broadcast (user_id null)
+  let userId = input.user_id ?? null
+  if (!userId && input.team_member_id) {
+    const { data: tm } = await supabase
+      .from('team_members').select('user_id').eq('id', input.team_member_id).maybeSingle()
+    userId = tm?.user_id ?? null
+  }
+
+  const row = {
+    user_id: userId,
+    title,
+    message,
+    type: input.type || 'system',
+    related_id: input.related_id ?? null,
+    is_read: false,
+  }
+  const { data, error } = await supabase.from('notifications').insert(row).select('id').single()
+  if (error) throw new Error(`insert notifications failed: ${error.message}`)
+  await revalidate(['/notifications', '/'])
+  return {
+    id: data.id,
+    targeted: userId ? 'user' : 'admin-broadcast',
+    user_id: userId,
+  }
+}
+
+// =============================================================================
+// CLIENT-FILE UPDATE (rename / recategorize / reassign)
+// =============================================================================
+
+async function updateClientFile(input) {
+  const patch = {}
+  for (const k of ['name', 'category', 'client_id', 'file_type', 'file_path', 'file_size']) {
+    if (input[k] !== undefined) patch[k] = input[k]
+  }
+  if (Object.keys(patch).length === 0) return { updated: false, reason: 'nothing to update' }
+  const { data, error } = await supabase
+    .from('client_files').update(patch).eq('id', input.id).select('id, client_id, name, category').single()
+  if (error) throw new Error(`update client_files failed: ${error.message}`)
+  await revalidate(['/files', data.client_id ? `/clients/${data.client_id}` : '/clients'])
+  return { updated: true, id: data.id, patched: Object.keys(patch), name: data.name, category: data.category }
+}
+
+// =============================================================================
+// BULK-SCHEDULE WEEKLY REPORTS (mirrors the new-client wizard's helper)
+// =============================================================================
+
+function _isoYearWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  const dn = (t.getUTCDay() + 6) % 7
+  t.setUTCDate(t.getUTCDate() - dn + 3)
+  const ft = new Date(Date.UTC(t.getUTCFullYear(), 0, 4))
+  const w = 1 + Math.round(((t.getTime() - ft.getTime()) / 86_400_000 - 3 + ((ft.getUTCDay() + 6) % 7)) / 7)
+  return { year: t.getUTCFullYear(), week: w }
+}
+function _addDays(iso, n) { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
+function _nextMondayIso() {
+  const d = new Date()
+  const day = d.getDay()
+  const adj = day === 1 ? 0 : ((8 - day) % 7 || 0)
+  d.setDate(d.getDate() + adj)
+  return d.toISOString().slice(0, 10)
+}
+
+async function scheduleWeeklyReports(input) {
+  // Resolve client
+  let clientId = input.client_id
+  let clientRow = null
+  if (clientId) {
+    const { data } = await supabase.from('clients').select('id, company_name, full_name, email').eq('id', clientId).maybeSingle()
+    clientRow = data
+  } else if (input.client_company_name) {
+    const { data } = await supabase.from('clients').select('id, company_name, full_name, email').ilike('company_name', `%${input.client_company_name}%`).limit(1).maybeSingle()
+    clientRow = data
+    clientId = data?.id
+  }
+  if (!clientId || !clientRow) throw new Error('client not found — pass client_id or client_company_name')
+
+  // Resolve assignee
+  let assigneeId = input.assignee_team_member_id
+  let assigneeRow = null
+  if (assigneeId) {
+    const { data } = await supabase.from('team_members').select('id, user_id, full_name').eq('id', assigneeId).maybeSingle()
+    assigneeRow = data
+  } else if (input.assignee_name) {
+    const { data } = await supabase.from('team_members').select('id, user_id, full_name').ilike('full_name', `%${input.assignee_name}%`).limit(1).maybeSingle()
+    assigneeRow = data
+    assigneeId = data?.id
+  }
+  if (!assigneeId || !assigneeRow) throw new Error('assignee team member not found — pass assignee_team_member_id or assignee_name')
+
+  const weeks = Math.max(1, Math.min(52, input.weeks ?? 12))
+  const start = input.start_date_iso || _nextMondayIso()
+  const sixCharSlug = (clientRow.company_name || 'CL').replace(/[^A-Za-z0-9]+/g, '').slice(0, 6).toUpperCase() || 'CL'
+
+  const rows = []
+  for (let i = 0; i < weeks; i++) {
+    const periodStart = _addDays(start, i * 7)
+    const { year, week } = _isoYearWeek(new Date(periodStart + 'T00:00:00Z'))
+    rows.push({
+      client_id: clientId,
+      client_name_snapshot: clientRow.full_name,
+      customer_name: clientRow.full_name,
+      customer_company: clientRow.company_name,
+      period_start: periodStart,
+      period_end: _addDays(periodStart, 6),
+      issue_date: _addDays(periodStart, 7),
+      status: 'draft',
+      report_number: `WR-${year}-W${String(week).padStart(2, '0')}-${sixCharSlug}`,
+      assignee_id: assigneeId,
+      prepared_for_contact: clientRow.full_name,
+      prepared_for_email: clientRow.email,
+      services: [],
+    })
+  }
+  const { data: inserted, error } = await supabase
+    .from('weekly_reports').insert(rows).select('id, report_number, period_start')
+  if (error) throw new Error(`weekly_reports insert failed: ${error.message}`)
+
+  // Notify the assignee in one summary message (the dashboard's existing
+  // notifications relay forwards this to their WhatsApp automatically).
+  await supabase.from('notifications').insert({
+    user_id: assigneeRow.user_id ?? null,
+    title: `Weekly reports assigned: ${clientRow.company_name}`,
+    message:
+      `${assigneeRow.full_name}, you've been set as the owner of ${weeks} weekly reports for ${clientRow.company_name}. ` +
+      `First period: ${start} → ${_addDays(start, 6)}. Check the Calendar / Weekly Reports page when the first one is due.`,
+    type: 'report_assigned',
+    related_id: clientId,
+    is_read: false,
+  }).catch((e) => console.warn('[schedule_weekly_reports] notif insert failed:', e?.message ?? e))
+
+  await revalidate(['/reports', '/calendar', '/notifications', `/clients/${clientId}`])
+
+  return {
+    scheduled: weeks,
+    client: clientRow.company_name,
+    assignee: assigneeRow.full_name,
+    first_period_start: rows[0].period_start,
+    last_period_end: rows[rows.length - 1].period_end,
+    report_numbers: inserted.map((r) => r.report_number),
+  }
+}
+
+// =============================================================================
 // REGISTRY
 // =============================================================================
 
@@ -1799,6 +1998,9 @@ const registry = {
   delete_team_member: deleteTeamMember,
   // comm logs
   log_communication: logCommunication,
+  find_communication_logs: findCommunicationLogs,
+  update_communication_log: updateCommunicationLog,
+  delete_communication_log: deleteCommunicationLog,
   // outbound WhatsApp + email to arbitrary recipients
   send_whatsapp_message: sendWhatsappMessage,
   send_whatsapp_file: sendWhatsappFile,
@@ -1812,6 +2014,7 @@ const registry = {
   mark_notification_read: markNotificationRead,
   mark_all_notifications_read: markAllNotificationsRead,
   delete_notification: deleteNotification,
+  add_notification: addNotification,
   // content items (social media posts)
   add_content_item: addContentItem,
   find_content_item: findContentItem,
@@ -1820,6 +2023,7 @@ const registry = {
   // client files
   list_client_files: listClientFiles,
   add_client_file_link: addClientFileLink,
+  update_client_file: updateClientFile,
   delete_client_file: deleteClientFile,
   // agency settings
   get_agency_settings: getAgencySettings,
@@ -1829,6 +2033,7 @@ const registry = {
   find_weekly_report: findWeeklyReport,
   update_weekly_report: updateWeeklyReport,
   delete_weekly_report: deleteWeeklyReport,
+  schedule_weekly_reports: scheduleWeeklyReports,
   add_report_service: addReportService,
   update_report_service: updateReportService,
   remove_report_service: removeReportService,

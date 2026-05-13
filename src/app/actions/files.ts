@@ -7,81 +7,54 @@ import { revalidatePath } from 'next/cache'
 
 const BUCKET = 'agency-files'
 
-function sanitizeFilename(name: string): string {
-  const dot = name.lastIndexOf('.')
-  const base = (dot > 0 ? name.slice(0, dot) : name).replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/-+/g, '-').slice(0, 80) || 'file'
-  const ext = (dot > 0 ? name.slice(dot + 1) : '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toLowerCase() || 'bin'
-  return `${base}.${ext}`
-}
-
-function readFile(formData: FormData, name: string): File | null {
-  const v = formData.get(name)
-  if (!v || typeof v === 'string') return null
-  return v as File
-}
-
-// User-facing upload action. Receives the file + metadata as FormData,
-// pushes the bytes to the `agency-files` bucket via the service-role
-// client (bypassing RLS), then inserts a row in `client_files` so the
-// Files page can render it.
-export async function uploadClientFile(formData: FormData): Promise<
-  { ok: true; id: string } | { ok: false; error: string }
-> {
+// Lightweight metadata insert. The actual file bytes are uploaded
+// directly from the browser to Supabase Storage (the bucket policies are
+// public-insertable), so this action never has to receive the file body
+// — sidesteps Hostinger's reverse-proxy body-size cap on shared hosting
+// and the 30-60s request timeout that was making 19MB uploads hang.
+export async function registerClientFile(input: {
+  client_id: string
+  category: string
+  name: string
+  file_type: string
+  size: number
+  storage_path: string
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const me = await getCurrentUser()
     if (!me) return { ok: false, error: 'Not signed in.' }
-
-    const client_id = (formData.get('client_id') as string | null)?.trim() || ''
-    const category = (formData.get('category') as string | null)?.trim() || 'Other'
-    let displayName = (formData.get('name') as string | null)?.trim() || ''
-
-    if (!client_id) return { ok: false, error: 'Pick a client.' }
-
-    const file = readFile(formData, 'file')
-    if (!file || !file.size) return { ok: false, error: 'Attach a file before submitting.' }
-    if (file.size > 100 * 1024 * 1024) return { ok: false, error: 'File is too large (100MB limit).' }
-
-    if (!displayName) displayName = file.name
-
-    const safe = sanitizeFilename(file.name)
-    const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'bin'
-    const path = `${client_id}/${Date.now()}-${safe}`
+    if (!input.client_id) return { ok: false, error: 'Pick a client.' }
+    if (!input.storage_path) return { ok: false, error: 'Missing storage path.' }
 
     const sb = agentSupabase()
-    const buf = Buffer.from(await file.arrayBuffer())
-    const { error: upErr } = await sb.storage
-      .from(BUCKET)
-      .upload(path, buf, { contentType: file.type || 'application/octet-stream', upsert: false })
-    if (upErr) return { ok: false, error: `Upload failed: ${upErr.message}` }
-
-    const { data: pub } = sb.storage.from(BUCKET).getPublicUrl(path)
-    const storage_path = pub?.publicUrl ?? path
-
     const { data: row, error: insErr } = await sb
       .from('client_files')
       .insert({
-        name: displayName,
-        category,
-        client_id,
-        file_type: ext,
-        size: file.size,
-        storage_path,
+        name: input.name || 'Untitled',
+        category: input.category || 'Other',
+        client_id: input.client_id,
+        file_type: input.file_type || 'bin',
+        size: input.size || 0,
+        storage_path: input.storage_path,
         uploaded_by: me.id,
       })
       .select('id')
       .single()
-    if (insErr || !row) {
-      // Clean up the orphan storage object so we don't accumulate garbage.
-      await sb.storage.from(BUCKET).remove([path]).catch(() => null)
-      return { ok: false, error: `Save failed: ${insErr?.message ?? 'unknown'}` }
-    }
+    if (insErr || !row) return { ok: false, error: `Save failed: ${insErr?.message ?? 'unknown'}` }
 
     revalidatePath('/files')
     return { ok: true, id: (row as any).id }
   } catch (err: any) {
-    console.error('uploadClientFile crashed:', err)
+    console.error('registerClientFile crashed:', err)
     return { ok: false, error: err?.message ?? 'Unexpected error' }
   }
+}
+
+// Old single-call action — kept exported so any in-flight client bundles
+// that still reference it don't break, but new code should use the
+// browser-direct + registerClientFile() flow above.
+export async function uploadClientFile(_formData: FormData) {
+  return { ok: false as const, error: 'Use the browser-direct upload flow (registerClientFile).' }
 }
 
 export async function deleteFileRecord(id: string) {

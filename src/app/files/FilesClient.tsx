@@ -2,8 +2,26 @@
 
 import { useState, useRef } from 'react'
 import { Upload, Folder, Trash2, Download, File, FileText, Image, Film, Search, Plus } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
-import { uploadClientFile } from '@/app/actions/files'
+import { registerClientFile } from '@/app/actions/files'
+
+// Browser-side Supabase client. RLS on storage.objects is loosened in
+// migration 017 so anon can insert into the agency-files bucket — gated
+// by application-level auth in registerClientFile() instead.
+const supabaseBrowserClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+)
+
+const BUCKET = 'agency-files'
+
+function sanitizeFilename(name: string): string {
+  const dot = name.lastIndexOf('.')
+  const base = (dot > 0 ? name.slice(0, dot) : name).replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/-+/g, '-').slice(0, 80) || 'file'
+  const ext = (dot > 0 ? name.slice(dot + 1) : '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toLowerCase() || 'bin'
+  return `${base}.${ext}`
+}
 
 interface FileRecord {
   id: string
@@ -91,8 +109,6 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
     e.preventDefault()
     setUploadError(null)
 
-    // Validation must look at pickedFile (works for both click + drag-drop)
-    // rather than fileRef.current.files (only populated on click).
     if (!pickedFile) {
       setUploadError(ar ? 'يرجى اختيار ملف.' : 'Pick a file first.')
       return
@@ -101,19 +117,50 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
       setUploadError(ar ? 'يرجى اختيار العميل.' : 'Pick a client.')
       return
     }
+    if (pickedFile.size > 100 * 1024 * 1024) {
+      setUploadError(ar ? 'الملف كبير جداً (الحد الأقصى ١٠٠ ميجابايت).' : 'File is too large (100MB limit).')
+      return
+    }
 
     setUploading(true)
     try {
-      const fd = new FormData()
-      fd.set('file', pickedFile)
-      fd.set('client_id', formData.client_id)
-      fd.set('category', formData.category)
-      fd.set('name', formData.name || pickedFile.name)
-      const result = await uploadClientFile(fd)
+      // 1. Browser → Supabase Storage. Skips the server action entirely,
+      //    so Hostinger's reverse-proxy body-size cap can't block large
+      //    files. Storage policies are public-insertable (migration 017).
+      const safe = sanitizeFilename(pickedFile.name)
+      const path = `${formData.client_id}/${Date.now()}-${safe}`
+      const { error: upErr } = await supabaseBrowserClient.storage
+        .from(BUCKET)
+        .upload(path, pickedFile, {
+          contentType: pickedFile.type || 'application/octet-stream',
+          upsert: false,
+        })
+      if (upErr) {
+        setUploadError((ar ? 'فشل الرفع: ' : 'Upload failed: ') + upErr.message)
+        return
+      }
+
+      const { data: pub } = supabaseBrowserClient.storage.from(BUCKET).getPublicUrl(path)
+      const storage_path = pub?.publicUrl ?? path
+
+      // 2. Tiny server action call — just the row metadata, no file bytes.
+      //    Always fits well under any reverse-proxy body cap.
+      const ext = (pickedFile.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'bin'
+      const result = await registerClientFile({
+        client_id: formData.client_id,
+        category: formData.category,
+        name: formData.name || pickedFile.name,
+        file_type: ext,
+        size: pickedFile.size,
+        storage_path,
+      })
       if (!result.ok) {
+        // Try to remove the orphaned storage object so we don't leak.
+        await supabaseBrowserClient.storage.from(BUCKET).remove([path]).catch(() => null)
         setUploadError(result.error)
         return
       }
+
       setShowUpload(false)
       setFormData({ name: '', category: 'Branding', client_id: '' })
       setPickedFile(null)

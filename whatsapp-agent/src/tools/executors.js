@@ -734,6 +734,126 @@ async function sendEmail(input) {
   }
 }
 
+// Map a file extension to a sensible MIME type. Falls back to
+// application/octet-stream so baileys still accepts the document.
+function mimeFromExt(ext) {
+  const e = String(ext || '').toLowerCase().replace(/^\./, '')
+  const m = {
+    pdf: 'application/pdf',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    mp4: 'video/mp4',
+    mov: 'video/quicktime',
+    webm: 'video/webm',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    csv: 'text/csv',
+    txt: 'text/plain',
+    zip: 'application/zip',
+  }
+  return m[e] || 'application/octet-stream'
+}
+
+// Send a file from client_files (the Files page on the dashboard) as a
+// WhatsApp document attachment. The user's classic use case is:
+//   "send the Emergize profile pdf to +966555..." — agent finds the
+//   profile in /files, downloads it, ships it. By default, the file
+//   search runs across ALL clients so agency-wide assets like the
+//   company profile can be found without knowing which client they're
+//   attached to.
+async function sendWhatsappFile(input) {
+  if (!isReady()) throw new Error('WhatsApp socket is not ready yet')
+  const jid = phoneToJid(input.to_phone)
+  if (!jid) throw new Error(`invalid phone number: "${input.to_phone}"`)
+
+  // 1. Resolve the file row.
+  let file = null
+  if (input.file_id) {
+    const { data, error } = await supabase
+      .from('client_files')
+      .select('id, name, file_path, file_type, file_size, client_id')
+      .eq('id', input.file_id)
+      .maybeSingle()
+    if (error) throw new Error(`file lookup failed: ${error.message}`)
+    if (!data) throw new Error(`file ${input.file_id} not found`)
+    file = data
+  } else if (input.query) {
+    let q = supabase
+      .from('client_files')
+      .select('id, name, file_path, file_type, file_size, client_id, clients(company_name)')
+      .ilike('name', `%${input.query}%`)
+      .order('created_at', { ascending: false })
+      .limit(5)
+    if (input.client_company_name) {
+      const clientId = await resolveClientIdByName(input.client_company_name)
+      if (clientId) q = supabase
+        .from('client_files')
+        .select('id, name, file_path, file_type, file_size, client_id, clients(company_name)')
+        .eq('client_id', clientId)
+        .ilike('name', `%${input.query}%`)
+        .order('created_at', { ascending: false })
+        .limit(5)
+    }
+    const { data, error } = await q
+    if (error) throw new Error(`file search failed: ${error.message}`)
+    if (!data || data.length === 0) {
+      throw new Error(`no file matches "${input.query}" — upload it on /files first, or ask for a different name.`)
+    }
+    if (data.length > 1) {
+      // Multiple matches — surface them all so the model can disambiguate
+      // by passing file_id on the next call rather than guessing.
+      const list = data.map((d) => `${d.id}: ${d.name} (${d.clients?.company_name || 'unlinked'})`).join('\n  ')
+      throw new Error(`${data.length} files match "${input.query}":\n  ${list}\nPick one by passing file_id.`)
+    }
+    file = data[0]
+  } else {
+    throw new Error('Provide either file_id or query.')
+  }
+
+  // 2. Download the bytes from Supabase Storage. file_path is the public URL.
+  const fileUrl = file.file_path
+  if (!fileUrl) throw new Error(`file ${file.id} has no file_path — re-upload it.`)
+  const res = await fetch(fileUrl)
+  if (!res.ok) throw new Error(`download failed: ${res.status} ${res.statusText}`)
+  const buf = Buffer.from(await res.arrayBuffer())
+
+  // 3. Send as a document. fileName falls back to the row's stored name
+  // and the mimetype is inferred from file_type (which the upload flow
+  // sets to the file extension).
+  const fileName = file.name || `file.${file.file_type || 'bin'}`
+  const mimetype = mimeFromExt(file.file_type)
+  const { sock } = getSock()
+  try {
+    await sock.sendMessage(jid, {
+      document: buf,
+      mimetype,
+      fileName,
+      caption: input.caption || undefined,
+    })
+  } catch (err) {
+    throw new Error(`send failed: ${err?.message ?? err}`)
+  }
+
+  // 4. If this was an outreach to an existing client (e.g. business card →
+  // add_client → send-profile), mark them contacted just like
+  // send_whatsapp_message does.
+  await markClientContacted(input.client_id, 'whatsapp', `Sent file: ${fileName}${input.caption ? ` — ${input.caption}` : ''}`)
+  console.log(`[outbound-file] sent ${fileName} (${buf.length}B) to ${jid}`)
+  return {
+    sent: true,
+    to: jid,
+    file_id: file.id,
+    fileName,
+    bytes: buf.length,
+    client_marked_contacted: !!input.client_id,
+  }
+}
+
 // =============================================================================
 // CLIENT SERVICES
 // =============================================================================
@@ -1642,6 +1762,7 @@ const registry = {
   log_communication: logCommunication,
   // outbound WhatsApp + email to arbitrary recipients
   send_whatsapp_message: sendWhatsappMessage,
+  send_whatsapp_file: sendWhatsappFile,
   send_email: sendEmail,
   // client services
   add_client_service: addClientService,

@@ -797,6 +797,44 @@ const outboundWhatsappTools = [
   {
     type: 'function',
     function: {
+      name: 'send_whatsapp_file',
+      description:
+        'Send a file from the dashboard /files page (table client_files) to a phone number as a WhatsApp document. Use when the user says things like "send the Emergize profile to +966555..." or "ship the brand guidelines PDF to 0541388964". Pass `query` to fuzzy-match the file name across ALL clients (use this for agency-wide assets like the company profile that aren\'t tied to a specific client). Pass `client_company_name` to scope the search. If multiple files match, the tool returns an error listing them with their ids — call again with file_id to disambiguate. Also marks the client contacted when client_id is passed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to_phone: {
+            type: 'string',
+            description: 'Destination phone. Accepts +966… international, 9665… digits-only, or 05… local Saudi format.',
+          },
+          query: {
+            type: 'string',
+            description: 'Fuzzy-match against client_files.name. Examples: "emergize profile", "brand guidelines", "Q-2026-005". Skip when you already have file_id.',
+          },
+          file_id: {
+            type: 'string',
+            description: 'Exact file id (from list_client_files / find_client / earlier ambiguous-match error). Skip when using query.',
+          },
+          client_company_name: {
+            type: 'string',
+            description: 'Optional. Limits the file search to one client. Omit for agency-wide assets like the company profile.',
+          },
+          caption: {
+            type: 'string',
+            description: 'Optional short text to attach to the document (1-2 sentences).',
+          },
+          client_id: {
+            type: 'string',
+            description: 'Optional. If you\'re sending the file as an outreach to a CRM client, pass their id so the dashboard stamps last_contacted_at + bumps to_contact → lead.',
+          },
+        },
+        required: ['to_phone'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'send_email',
       description:
         'Send an email RIGHT NOW via Resend. Use when the user asks to email someone — typically the email pulled off a business card, or a CRM client whose address you already know. Pass client_id to mark the client as contacted in the dashboard. ONE call per email; do NOT loop. For SCHEDULED follow-ups, use add_reminder (no email scheduler yet — the reminder pings the admin, who then sends).',

@@ -54,7 +54,7 @@ const T = {
   },
 } as const
 
-function relativeAge(iso: string | null | undefined, t: typeof T['en']): string {
+function relativeAge(iso: string | null | undefined, t: { justNow: string; hoursAgo: string; daysAgo: string }): string {
   if (!iso) return ''
   const then = Date.parse(iso)
   if (Number.isNaN(then)) return ''

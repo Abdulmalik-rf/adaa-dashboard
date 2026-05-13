@@ -87,3 +87,20 @@ export async function updateClientStatus(id: string, status: string) {
   revalidatePath(`/clients/${id}`)
   revalidatePath('/clients')
 }
+
+// Free-form note attached to a client. Backed by communication_logs with
+// type='note' so we get the existing timestamp/auditing for free instead
+// of standing up a new table. Used by the Notes tab on the client
+// workspace.
+export async function addClientNote(clientId: string, formData: FormData) {
+  const summary = String(formData.get('summary') ?? '').trim()
+  if (!summary) return
+  await (supabaseClient as any).from('communication_logs').insert({
+    client_id: clientId,
+    type: 'note',
+    summary,
+    notes: null,
+    date: new Date().toISOString(),
+  })
+  revalidatePath(`/clients/${clientId}`)
+}

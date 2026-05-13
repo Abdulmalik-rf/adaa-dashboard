@@ -10,6 +10,7 @@ import { AddReminderModal } from "@/app/reminders/AddReminderModal"
 import { AddTaskModal } from "@/app/tasks/AddTaskModal"
 import { AddCampaignModal } from "@/app/campaigns/AddCampaignModal"
 import { SubmitPostModal } from "@/app/content/SubmitPostModal"
+import { UploadFileInline } from "./UploadFileInline"
 
 export const revalidate = 0
 
@@ -553,11 +554,10 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       content: (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <Link href="/files">
-              <button className="btn btn-primary btn-sm">
-                <Upload className="h-4 w-4" /> Upload file
-              </button>
-            </Link>
+            <UploadFileInline
+              clientId={client.id}
+              existingCategories={Array.from(new Set(((files as any[]) ?? []).map((f: any) => f.category).filter(Boolean))) as string[]}
+            />
           </div>
           <div className="premium-card p-6">
             <h3 className="text-lg font-bold mb-4">Documents & Assets</h3>

@@ -18,12 +18,12 @@ export function AddReminderModal({ clients }: { clients: any[] }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-hidden">
-        <div className="flex items-center justify-between p-6 border-b dark:border-slate-700">
+      <div className="bg-white text-gray-900 w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <Bell className="h-5 w-5 text-primary" /> Create Remark/Reminder
           </h2>
-          <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-gray-700">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -34,14 +34,14 @@ export function AddReminderModal({ clients }: { clients: any[] }) {
         }} className="p-6 space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-semibold">Reminder / Note</label>
-            <textarea name="title" required className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50" placeholder="e.g. Follow up on the new contract" />
+            <textarea name="title" required className="w-full p-2.5 border rounded-xl bg-gray-50 text-gray-900" placeholder="e.g. Follow up on the new contract" />
           </div>
 
           <div className="space-y-2">
             <label className="text-sm font-semibold flex items-center gap-2">
                <Building className="h-3 w-3" /> Client
             </label>
-            <select name="client_id" required className="w-full p-2.5 border rounded-xl dark:bg-gray-900 bg-gray-50/50 appearance-none text-sm">
+            <select name="client_id" required className="w-full p-2.5 border rounded-xl bg-gray-50/50 text-gray-900 appearance-none text-sm">
                <option value="">Select Client</option>
                {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
             </select>
@@ -52,13 +52,13 @@ export function AddReminderModal({ clients }: { clients: any[] }) {
                 <label className="text-sm font-semibold flex items-center gap-2">
                    <Calendar className="h-3 w-3" /> Due Date
                 </label>
-                <input name="due_date" type="date" required className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 text-sm" />
+                <input name="due_date" type="date" required className="w-full p-2.5 border rounded-xl bg-gray-50 text-gray-900 text-sm" />
              </div>
              <div className="space-y-2">
                 <label className="text-sm font-semibold flex items-center gap-2">
                    <AlertCircle className="h-3 w-3" /> Priority
                 </label>
-                <select name="priority" className="w-full p-2.5 border rounded-xl dark:bg-gray-900 bg-gray-50/50 appearance-none text-sm">
+                <select name="priority" className="w-full p-2.5 border rounded-xl bg-gray-50/50 text-gray-900 appearance-none text-sm">
                    <option value="low">Low</option>
                    <option value="medium" selected>Medium</option>
                    <option value="high">High</option>
@@ -68,7 +68,7 @@ export function AddReminderModal({ clients }: { clients: any[] }) {
 
           <div className="space-y-2">
             <label className="text-sm font-semibold">Type</label>
-            <select name="type" className="w-full p-2.5 border rounded-xl dark:bg-gray-900 bg-gray-50/50 appearance-none text-sm">
+            <select name="type" className="w-full p-2.5 border rounded-xl bg-gray-50/50 text-gray-900 appearance-none text-sm">
                <option value="Follow-up">Follow-up</option>
                <option value="Payment">Payment</option>
                <option value="Meeting">Meeting</option>

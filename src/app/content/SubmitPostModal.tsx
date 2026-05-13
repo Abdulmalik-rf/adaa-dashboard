@@ -78,13 +78,13 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-hidden animate-in slide-in-from-bottom-4 duration-300 max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b dark:border-slate-700">
+      <div className="bg-white text-gray-900 w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in slide-in-from-bottom-4 duration-300 max-h-[92vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <Upload className="h-5 w-5 text-primary" />
             {ar ? 'إرسال منشور للمراجعة' : 'Submit Post for Review'}
           </h2>
-          <button onClick={reset} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <button onClick={reset} className="text-gray-400 hover:text-gray-700">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -99,7 +99,7 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
             <select
               name="client_id"
               required
-              className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 dark:border-slate-600 text-sm"
+              className="w-full p-2.5 border rounded-xl bg-gray-50 text-gray-900 text-sm"
             >
               <option value="">{ar ? 'اختر عميلاً…' : 'Select a client…'}</option>
               {clients.map((c) => (
@@ -116,7 +116,7 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
               required
               maxLength={120}
               placeholder={ar ? 'مثال: ريل إطلاق المجموعة الشتوية' : 'e.g. Winter launch reel'}
-              className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 dark:border-slate-600 text-sm"
+              className="w-full p-2.5 border rounded-xl bg-gray-50 text-gray-900 text-sm"
             />
           </div>
 
@@ -127,7 +127,7 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
               <select
                 name="platform"
                 defaultValue="instagram"
-                className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 dark:border-slate-600 text-sm"
+                className="w-full p-2.5 border rounded-xl bg-gray-50 text-gray-900 text-sm"
               >
                 <option value="instagram">Instagram</option>
                 <option value="tiktok">TikTok</option>
@@ -140,7 +140,7 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
               <select
                 name="content_type"
                 defaultValue="post"
-                className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 dark:border-slate-600 text-sm"
+                className="w-full p-2.5 border rounded-xl bg-gray-50 text-gray-900 text-sm"
               >
                 <option value="post">{ar ? 'منشور' : 'Post'}</option>
                 <option value="reel">{ar ? 'ريل' : 'Reel'}</option>
@@ -157,7 +157,7 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
               name="description"
               rows={3}
               placeholder={ar ? 'اشرح فكرة المنشور للمسؤول لمراجعتها…' : 'Explain the idea so the admin can review it…'}
-              className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 dark:border-slate-600 text-sm resize-none"
+              className="w-full p-2.5 border rounded-xl bg-gray-50 text-gray-900 text-sm resize-none"
             />
           </div>
 
@@ -168,7 +168,7 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
               name="caption"
               rows={2}
               placeholder={ar ? 'النص الذي سيظهر مع المنشور…' : 'Text that will appear with the post…'}
-              className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 dark:border-slate-600 text-sm resize-none"
+              className="w-full p-2.5 border rounded-xl bg-gray-50 text-gray-900 text-sm resize-none"
             />
           </div>
 
@@ -179,7 +179,7 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
               type="date"
               name="publish_date"
               defaultValue={new Date().toISOString().slice(0, 10)}
-              className="w-full p-2.5 border rounded-xl dark:bg-slate-700 bg-gray-50 dark:border-slate-600 text-sm"
+              className="w-full p-2.5 border rounded-xl bg-gray-50 text-gray-900 text-sm"
             />
           </div>
 
@@ -196,20 +196,20 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
               className="block w-full text-sm text-gray-600 dark:text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
             />
             {preview && (
-              <div className="mt-2 rounded-xl border dark:border-slate-600 overflow-hidden bg-black/5 dark:bg-black/30">
+              <div className="mt-2 rounded-xl border overflow-hidden bg-black/5 dark:bg-black/30">
                 {preview.isVideo ? (
                   <video src={preview.url} controls className="w-full max-h-56 object-contain bg-black" />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={preview.url} alt={preview.name} className="w-full max-h-56 object-contain bg-black" />
                 )}
-                <div className="px-3 py-1.5 text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                <div className="px-3 py-1.5 text-[11px] text-gray-500 flex items-center gap-1.5">
                   {preview.isVideo ? <Film className="h-3 w-3" /> : <ImageIcon className="h-3 w-3" />}
                   <span className="truncate">{preview.name}</span>
                 </div>
               </div>
             )}
-            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            <p className="text-[11px] text-gray-500">
               {ar ? 'الحد الأقصى ٥٠ ميجابايت. JPG / PNG / WEBP / MP4 / MOV.' : 'Max 50MB. JPG / PNG / WEBP / MP4 / MOV.'}
             </p>
           </div>

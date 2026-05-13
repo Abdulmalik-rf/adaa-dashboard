@@ -74,15 +74,15 @@ export function MemberLoginActions({
 
       {(credentials || error) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-hidden">
-            <div className="flex items-center justify-between p-5 border-b dark:border-slate-700">
+          <div className="bg-white text-gray-900 w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 <KeyRound className="h-4 w-4 text-[hsl(var(--primary))]" />
                 {credentials ? 'Login credentials' : 'Error'}
               </h2>
               <button
                 onClick={() => { setCredentials(null); setError(null); setCopied(null) }}
-                className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                className="text-gray-400 hover:text-gray-700 hover:text-gray-700"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -153,9 +153,9 @@ function CredentialField({
 }) {
   return (
     <div>
-      <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">{label}</p>
-      <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-gray-900 px-3 py-2.5">
-        <span className={`flex-1 text-sm text-gray-900 dark:text-gray-100 ${mono ? 'font-mono' : ''} truncate`}>{value}</span>
+      <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">{label}</p>
+      <div className="flex items-center gap-2 rounded-xl border border-gray-200 border-gray-200 bg-gray-50 dark:bg-gray-900 px-3 py-2.5">
+        <span className={`flex-1 text-sm text-gray-900 ${mono ? 'font-mono' : ''} truncate`}>{value}</span>
         <button
           type="button"
           onClick={onCopy}

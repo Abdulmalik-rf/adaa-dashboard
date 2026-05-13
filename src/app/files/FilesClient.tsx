@@ -78,7 +78,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
   const [search, setSearch] = useState('')
   const [filterClient, setFilterClient] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
-  const [formData, setFormData] = useState({ name: '', category: 'Branding', client_id: '' })
+  const [formData, setFormData] = useState({ name: '', category: '', client_id: '' })
   // Track the actual File object alongside the displayed name so drag-drop
   // works the same as click-to-select. Previously dropping a file only
   // updated formData.name; fileRef.current.files stayed empty and the
@@ -86,17 +86,27 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
   const [pickedFile, setPickedFile] = useState<File | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Categories keep their English keys (so existing DB rows match) but
-  // display in Arabic when the UI is RTL.
-  const categories = ['Branding', 'Reports', 'Products', 'Contracts', 'Creative', 'Other']
+  // Common-suggestion list shown as a datalist when typing in the
+  // category field. The user can pick one, or type anything else — the
+  // server stores whatever they type. Old data using these English keys
+  // still renders in Arabic via the translation map; free-text categories
+  // pass through unchanged.
+  const suggestedCategories = ar
+    ? ['هوية بصرية', 'تقارير', 'منتجات', 'عقود', 'إبداعي', 'فواتير', 'فيديوهات', 'مراسلات', 'أخرى']
+    : ['Branding', 'Reports', 'Products', 'Contracts', 'Creative', 'Invoices', 'Videos', 'Correspondence', 'Other']
+
   const categoryLabel = (c: string) => {
-    if (!ar) return c
+    if (!ar || !c) return c
     const map: Record<string, string> = {
       Branding: 'هوية بصرية', Reports: 'تقارير', Products: 'منتجات',
       Contracts: 'عقود', Creative: 'إبداعي', Other: 'أخرى',
     }
     return map[c] ?? c
   }
+
+  // Distinct categories present in existing rows — drives the filter
+  // dropdown so it auto-discovers any free-text category the user typed.
+  const existingCategories = Array.from(new Set(files.map(f => f.category).filter(Boolean))) as string[]
 
   const filtered = files.filter(f => {
     const searchMatch = !search || f.name.toLowerCase().includes(search.toLowerCase())
@@ -166,7 +176,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
       }
 
       setShowUpload(false)
-      setFormData({ name: '', category: 'Branding', client_id: '' })
+      setFormData({ name: '', category: '', client_id: '' })
       setPickedFile(null)
       window.location.reload()
     } catch (err: any) {
@@ -238,7 +248,7 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
         </select>
         <select className="form-input w-auto" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
           <option value="">{ar ? 'جميع التصنيفات' : 'All Categories'}</option>
-          {categories.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+          {existingCategories.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
         </select>
       </div>
 
@@ -393,15 +403,25 @@ export function FilesClient({ files, clients }: { files: FileRecord[]; clients: 
                   </div>
                   <div className="form-group">
                     <label className="form-label text-xs uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-                      {ar ? 'التصنيف' : 'Asset Category'}
+                      {ar ? 'التصنيف (اكتب ما تشاء)' : 'Category (type anything)'}
                     </label>
-                    <select
+                    <input
+                      type="text"
+                      list="file-category-suggestions"
+                      placeholder={ar ? 'مثال: عقد، فاتورة، تصميم…' : 'e.g. Contract, Invoice, Mood board…'}
                       className="form-input bg-transparent font-semibold border-b-2 border-t-0 border-l-0 border-r-0 border-[hsl(var(--border))] rounded-none px-0 focus:ring-0 focus:border-[hsl(var(--primary))]"
                       value={formData.category}
                       onChange={e => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                    >
-                      {categories.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
-                    </select>
+                      maxLength={80}
+                    />
+                    <datalist id="file-category-suggestions">
+                      {/* prior categories from existing rows first so the
+                          user can quick-pick what they've used before */}
+                      {existingCategories.map(c => <option key={`e-${c}`} value={c} />)}
+                      {suggestedCategories.filter(c => !existingCategories.includes(c)).map(c => (
+                        <option key={`s-${c}`} value={c} />
+                      ))}
+                    </datalist>
                   </div>
                 </div>
               </div>

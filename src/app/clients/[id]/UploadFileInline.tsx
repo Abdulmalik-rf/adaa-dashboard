@@ -1,6 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Upload, File as FileIcon, X, Loader2, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 import { registerClientFile } from '@/app/actions/files'
@@ -99,6 +100,8 @@ export function UploadFileInline({
   const [uploading, setUploading] = useState(false)
   const [done, setDone] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   function reset() {
     setOpen(false)
@@ -175,8 +178,13 @@ export function UploadFileInline({
     )
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" dir={dir}>
+  if (!mounted) return null
+
+  // Portal to body so the workspace's `.premium-card { overflow: hidden;
+  // position: relative }` ancestor can't trap our `position: fixed`
+  // overlay or clip it.
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" dir={dir}>
       <div className="bg-[hsl(var(--card))] w-full max-w-md rounded-2xl shadow-2xl border border-[hsl(var(--border))] overflow-hidden">
         <div className="flex items-center justify-between p-5 border-b border-[hsl(var(--border))]">
           <h2 className="text-lg font-bold flex items-center gap-2">
@@ -287,6 +295,7 @@ export function UploadFileInline({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

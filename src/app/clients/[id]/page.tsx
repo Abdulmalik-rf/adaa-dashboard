@@ -773,8 +773,16 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
       
-      {/* Workspace Content via Tabs */}
-      <div className="premium-card overflow-hidden">
+      {/* Workspace Content via Tabs.
+          NB: this wrapper deliberately does NOT use `.premium-card`. That
+          class applies `transform: translateY(...) scale(...)` on :hover,
+          which creates a containing block for any position:fixed
+          descendant. Every modal rendered inside a tab (SubmitPostModal,
+          UploadFileInline, EditContractPlanModal, AddContractModal,
+          AddReminderModal, AddTaskModal, AddCampaignModal,
+          AddSocialAccountModal) would otherwise get trapped here and
+          scroll with the page instead of staying viewport-locked. */}
+      <div className="rounded-3xl border border-[hsl(var(--border)/0.6)] bg-[hsl(var(--card))] shadow-sm overflow-hidden">
         <ClientWorkspaceTabs tabs={tabs} />
       </div>
     </div>

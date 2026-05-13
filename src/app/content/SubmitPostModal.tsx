@@ -1,6 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, X, Upload, Image as ImageIcon, Film, Send, Loader2, Building } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -68,6 +69,12 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
     }
   }
 
+  // Track when the component has mounted client-side. createPortal must
+  // only run on the client (document doesn't exist during SSR), and we
+  // want to know we have a real document before rendering the portal.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
   if (!open) {
     return (
       <Button onClick={() => setOpen(true)}>
@@ -76,8 +83,17 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
     )
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+  if (!mounted) return null
+
+  // Render the modal at document.body level so any ancestor with a
+  // transform/filter/will-change/position-relative stacking context
+  // can't trap our `position: fixed` overlay or clip it via overflow.
+  // The /clients/[id] workspace wraps the content tab in
+  // `.premium-card { position: relative; overflow: hidden }`, which is
+  // exactly the kind of containing block that caused the modal to scroll
+  // with the page and appear to "pop up and disappear" on this page.
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="bg-white text-gray-900 w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in slide-in-from-bottom-4 duration-300 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-xl font-bold flex items-center gap-2">
@@ -239,6 +255,7 @@ export function SubmitPostModal({ clients }: { clients: Client[] }) {
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

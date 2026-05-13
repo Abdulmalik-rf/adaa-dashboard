@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { ListChecks, Plus, Trash2, X, Loader2, Pencil } from 'lucide-react'
 import { updateContractPlan } from '@/app/actions/contracts'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -73,6 +74,8 @@ export function EditContractPlanModal({
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   function addRow() {
     setItems((d) => [...d, { id: uid(), title: '', detail: '', status: 'pending' }])
@@ -139,8 +142,13 @@ export function EditContractPlanModal({
     )
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" dir={dir}>
+  if (!mounted) return null
+
+  // Portal to body — the contracts tab renders inside the workspace's
+  // .premium-card container which creates a containing block that traps
+  // fixed-positioned children.
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" dir={dir}>
       <div className="bg-[hsl(var(--card))] w-full max-w-xl rounded-2xl shadow-2xl border border-[hsl(var(--border))] overflow-hidden max-h-[92vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-[hsl(var(--border))] flex-shrink-0">
           <div className="min-w-0">
@@ -248,6 +256,7 @@ export function EditContractPlanModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -762,7 +762,7 @@ const commLogTools = [
 ]
 
 // =============================================================================
-// OUTBOUND WHATSAPP — send a text to ANY number, right now
+// OUTBOUND WHATSAPP / EMAIL — reach out to someone right now
 // =============================================================================
 
 const outboundWhatsappTools = [
@@ -771,7 +771,7 @@ const outboundWhatsappTools = [
     function: {
       name: 'send_whatsapp_message',
       description:
-        'Send a WhatsApp text message to an arbitrary phone number RIGHT NOW. Use when the user explicitly asks to message/tell/notify someone whose number they gave you (e.g. "tell +966555... that the meeting moved to 4pm", "send Ahmad at 0541388964 the wire details"). For FUTURE deliveries (reminders, scheduled pings), use add_reminder with notify_phone instead — never call send_whatsapp_message inside a setTimeout loop. ONE call per message.',
+        'Send a WhatsApp text to an arbitrary phone RIGHT NOW. Use when the user asks to message/tell/notify someone ("tell +966555... the meeting moved to 4pm", "WhatsApp this person from the business card"). If you are reaching out to a CRM client (e.g. just added them via add_client), pass client_id so the dashboard stamps last_contacted_at and bumps to_contact → lead. For FUTURE deliveries use add_reminder with notify_phone instead. ONE call per message.',
       parameters: {
         type: 'object',
         properties: {
@@ -784,8 +784,35 @@ const outboundWhatsappTools = [
             type: 'string',
             description: 'Message body. Keep it concise; WhatsApp is not email.',
           },
+          client_id: {
+            type: 'string',
+            description:
+              'Optional. If this message is the first outreach to a CRM client (you just added them, or the user named one), pass the client id here — the tool stamps last_contacted_at and flips to_contact → lead automatically.',
+          },
         },
         required: ['to_phone', 'text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_email',
+      description:
+        'Send an email RIGHT NOW via Resend. Use when the user asks to email someone — typically the email pulled off a business card, or a CRM client whose address you already know. Pass client_id to mark the client as contacted in the dashboard. ONE call per email; do NOT loop. For SCHEDULED follow-ups, use add_reminder (no email scheduler yet — the reminder pings the admin, who then sends).',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Recipient email address.' },
+          subject: { type: 'string', description: 'Email subject line.' },
+          text: { type: 'string', description: 'Plain-text email body.' },
+          client_id: {
+            type: 'string',
+            description:
+              'Optional. CRM client id — the tool stamps last_contacted_at and flips to_contact → lead automatically.',
+          },
+        },
+        required: ['to', 'subject', 'text'],
       },
     },
   },

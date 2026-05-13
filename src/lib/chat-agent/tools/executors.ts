@@ -2,6 +2,7 @@
 // refactor. `input` params are shaped by the OpenAI tool schema at runtime.
 import { revalidatePath } from 'next/cache'
 import { agentSupabase } from '../supabase'
+import { sendEmail as sendEmailNow } from '../../email'
 
 // Lazy proxy — agentSupabase() is called on first property access, so build-
 // time imports of this file don't throw if env vars aren't set yet.
@@ -624,6 +625,53 @@ async function logCommunication(input) {
   if (error) throw new Error(`insert communication_logs failed: ${error.message}`)
   await revalidate([`/clients/${input.client_id}`])
   return { id: data.id, type: data.type, summary: data.summary }
+}
+
+// =============================================================================
+// OUTBOUND EMAIL — and contacted-state bookkeeping
+// =============================================================================
+
+async function markClientContacted(clientId, channel, summary) {
+  if (!clientId) return
+  try {
+    const { data: existing } = await supabase
+      .from('clients').select('status').eq('id', clientId).maybeSingle()
+    const patch: any = { last_contacted_at: new Date().toISOString() }
+    if (existing?.status === 'to_contact') patch.status = 'lead'
+    await supabase.from('clients').update(patch).eq('id', clientId)
+  } catch (err) {
+    console.error('[mark-contacted] client update failed:', (err as any)?.message ?? err)
+  }
+  try {
+    await supabase.from('communication_logs').insert({
+      client_id: clientId,
+      type: channel,
+      summary: String(summary).slice(0, 200),
+      date: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.error('[mark-contacted] comm log insert failed:', (err as any)?.message ?? err)
+  }
+  await revalidate(['/clients', `/clients/${clientId}`, '/'])
+}
+
+async function sendEmailTool(input) {
+  const to = String(input.to ?? '').trim()
+  const subject = String(input.subject ?? '').trim()
+  const text = String(input.text ?? '').trim()
+  if (!to || !to.includes('@')) throw new Error(`invalid recipient: "${input.to}"`)
+  if (!subject) throw new Error('subject is required')
+  if (!text) throw new Error('text is required')
+
+  const result = await sendEmailNow({ to, subject, text })
+  if (!result.ok) {
+    // sendEmail logs to console when RESEND_API_KEY is missing; surface the
+    // warning to the model so it can tell the admin honestly rather than
+    // claiming success.
+    return { sent: false, warning: result.error ?? 'send failed' }
+  }
+  await markClientContacted(input.client_id, 'email', `Email "${subject}": ${text}`)
+  return { sent: true, to, subject, client_marked_contacted: !!input.client_id }
 }
 
 // =============================================================================
@@ -1527,6 +1575,8 @@ const registry: Record<string, (input: any) => Promise<any>> = {
   delete_team_member: deleteTeamMember,
   // comm logs
   log_communication: logCommunication,
+  // outbound email
+  send_email: sendEmailTool,
   // client services
   add_client_service: addClientService,
   remove_client_service: removeClientService,

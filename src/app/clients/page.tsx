@@ -28,6 +28,8 @@ const T = {
     colStatus: "Status", colActions: "Actions",
     noClients: "No clients found", addFirst: "Add First Client",
     noContract: "No contract", noTasksLabel: "pending", lateLabel: "late",
+    notContacted: "Not contacted", contacted: "Contacted",
+    daysAgo: "d ago", hoursAgo: "h ago", justNow: "just now",
   },
   ar: {
     portfolioTitle: "محفظة العملاء",
@@ -47,8 +49,22 @@ const T = {
     colStatus: "الحالة", colActions: "الإجراءات",
     noClients: "لا يوجد عملاء", addFirst: "إضافة أول عميل",
     noContract: "بدون عقد", noTasksLabel: "معلق", lateLabel: "متأخر",
+    notContacted: "لم يتم التواصل", contacted: "تم التواصل",
+    daysAgo: "يوم", hoursAgo: "ساعة", justNow: "للتو",
   },
 } as const
+
+function relativeAge(iso: string | null | undefined, t: typeof T['en']): string {
+  if (!iso) return ''
+  const then = Date.parse(iso)
+  if (Number.isNaN(then)) return ''
+  const diffMs = Date.now() - then
+  const hours = Math.floor(diffMs / 3_600_000)
+  if (hours < 1) return t.justNow
+  if (hours < 24) return `${hours}${t.hoursAgo}`
+  const days = Math.floor(hours / 24)
+  return `${days}${t.daysAgo}`
+}
 
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
   const { q, status } = await searchParams
@@ -268,6 +284,17 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                       {client.email && <p className="text-xs flex items-center gap-1 text-[hsl(var(--muted-foreground))]"><Mail className="h-3 w-3" />{client.email}</p>}
                       {client.phone && <p className="text-xs flex items-center gap-1 text-[hsl(var(--muted-foreground))]"><Phone className="h-3 w-3" />{client.phone}</p>}
                       {!client.email && !client.phone && <span className="text-xs text-[hsl(var(--muted-foreground))]">—</span>}
+                      {client.last_contacted_at ? (
+                        <p className="text-[10px] mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-medium">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          {t.contacted} · {relativeAge(client.last_contacted_at, t)}
+                        </p>
+                      ) : (
+                        <p className="text-[10px] mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 font-medium">
+                          <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                          {t.notContacted}
+                        </p>
+                      )}
                     </div>
                   </td>
                   <td>

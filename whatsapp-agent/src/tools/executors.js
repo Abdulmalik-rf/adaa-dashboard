@@ -630,8 +630,41 @@ async function logCommunication(input) {
 }
 
 // =============================================================================
-// OUTBOUND WHATSAPP — send a message to ANY phone number, right now.
+// OUTBOUND WHATSAPP / EMAIL — reach out to a contact directly
 // =============================================================================
+
+// Stamp last_contacted_at on the client, bump to_contact → lead so the
+// "not contacted yet" pill flips, and write a paper-trail row to
+// communication_logs. Best-effort: any one of these failing should not
+// surface as the outbound send failing — log and continue.
+async function markClientContacted(clientId, channel, summary) {
+  if (!clientId) return
+  try {
+    const { data: existing } = await supabase
+      .from('clients')
+      .select('status')
+      .eq('id', clientId)
+      .maybeSingle()
+    const patch = { last_contacted_at: new Date().toISOString() }
+    if (existing?.status === 'to_contact') patch.status = 'lead'
+    await supabase.from('clients').update(patch).eq('id', clientId)
+  } catch (err) {
+    console.error('[mark-contacted] client update failed:', err?.message ?? err)
+  }
+  try {
+    await supabase.from('communication_logs').insert({
+      client_id: clientId,
+      type: channel,
+      summary: summary.slice(0, 200),
+      date: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.error('[mark-contacted] comm log insert failed:', err?.message ?? err)
+  }
+  try {
+    await revalidate(['/clients', `/clients/${clientId}`, '/'])
+  } catch {}
+}
 
 async function sendWhatsappMessage(input) {
   if (!isReady()) throw new Error('WhatsApp socket is not ready yet')
@@ -646,8 +679,59 @@ async function sendWhatsappMessage(input) {
   } catch (err) {
     throw new Error(`send failed: ${err?.message ?? err}`)
   }
+  await markClientContacted(input.client_id, 'whatsapp', `WhatsApp: ${text}`)
   console.log(`[outbound] sent to ${jid}: ${text.slice(0, 80)}`)
-  return { sent: true, to: jid, preview: text.slice(0, 80) }
+  return {
+    sent: true,
+    to: jid,
+    preview: text.slice(0, 80),
+    client_marked_contacted: !!input.client_id,
+  }
+}
+
+// Resend (https://resend.com) — single fetch, no SDK. Falls back to a
+// log-only behaviour if RESEND_API_KEY isn't set so the agent doesn't
+// hard-fail in environments where email isn't configured yet.
+async function sendEmail(input) {
+  const to = String(input.to ?? '').trim()
+  const subject = String(input.subject ?? '').trim()
+  const text = String(input.text ?? '').trim()
+  if (!to || !to.includes('@')) throw new Error(`invalid recipient: "${input.to}"`)
+  if (!subject) throw new Error('subject is required')
+  if (!text) throw new Error('text is required')
+
+  const apiKey = process.env.RESEND_API_KEY
+  const from = process.env.RESEND_FROM ?? 'Emergize <onboarding@resend.dev>'
+
+  if (!apiKey) {
+    console.warn('[email] RESEND_API_KEY not set — printing instead of sending:')
+    console.warn(`[email] To: ${to}\n  Subject: ${subject}\n  Body:\n${text}`)
+    return {
+      sent: false,
+      warning: 'RESEND_API_KEY not configured; email was logged to the agent console only. Set RESEND_API_KEY in whatsapp-agent/.env to actually send.',
+    }
+  }
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ from, to: [to], subject, text }),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Resend ${res.status}: ${body.slice(0, 200)}`)
+  }
+  await markClientContacted(input.client_id, 'email', `Email "${subject}": ${text}`)
+  console.log(`[outbound] emailed ${to}: ${subject}`)
+  return {
+    sent: true,
+    to,
+    subject,
+    client_marked_contacted: !!input.client_id,
+  }
 }
 
 // =============================================================================
@@ -1556,8 +1640,9 @@ const registry = {
   delete_team_member: deleteTeamMember,
   // comm logs
   log_communication: logCommunication,
-  // outbound WhatsApp to arbitrary numbers
+  // outbound WhatsApp + email to arbitrary recipients
   send_whatsapp_message: sendWhatsappMessage,
+  send_email: sendEmail,
   // client services
   add_client_service: addClientService,
   remove_client_service: removeClientService,

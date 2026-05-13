@@ -763,6 +763,38 @@ const commLogTools = [
 ]
 
 // =============================================================================
+// EMAIL — send right now via Resend
+// =============================================================================
+// Lives only on the dashboard side (no WhatsApp socket needed). For
+// WhatsApp sends from the in-app chat, schedule a reminder ~1 min out —
+// the WhatsApp agent's scheduler will pick it up and fire it.
+
+const emailTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'send_email',
+      description:
+        'Send an email RIGHT NOW via Resend. Use when the admin asks to email a contact (often pulled from a business card via add_client). Pass client_id to stamp last_contacted_at and flip to_contact → lead in the CRM. For SCHEDULED follow-ups, use add_reminder instead.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Recipient email address.' },
+          subject: { type: 'string' },
+          text: { type: 'string', description: 'Plain-text body.' },
+          client_id: {
+            type: 'string',
+            description:
+              'Optional. CRM client id — the tool stamps last_contacted_at and flips to_contact → lead automatically.',
+          },
+        },
+        required: ['to', 'subject', 'text'],
+      },
+    },
+  },
+]
+
+// =============================================================================
 // CLIENT SERVICES (simple tags)
 // =============================================================================
 
@@ -1392,6 +1424,7 @@ export const tools = [
   ...campaignsTools,
   ...teamTools,
   ...commLogTools,
+  ...emailTools,
   ...clientServicesTools,
   ...notificationTools,
   ...contentItemTools,

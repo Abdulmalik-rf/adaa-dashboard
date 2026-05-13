@@ -1,6 +1,7 @@
 import { supabaseClient } from "@/lib/supabase/client"
 import { notFound, redirect } from "next/navigation"
 import Link from "next/link"
+import { cookies } from "next/headers"
 import { ClientWorkspaceTabs } from "./ClientWorkspaceTabs"
 import { ConnectedAccountsTab } from "./ConnectedAccountsTab"
 import { deleteClient, updateClientStatus, addClientNote } from "@/app/actions/clients"
@@ -13,10 +14,87 @@ import { SubmitPostModal } from "@/app/content/SubmitPostModal"
 import { UploadFileInline } from "./UploadFileInline"
 import { EditContractPlanModal } from "./EditContractPlanModal"
 
+// Bilingual labels — read the locale cookie set by the client-side
+// language toggle so the workspace renders in Arabic when the rest of
+// the app does. Strings live inline rather than in the central
+// dictionary because most are workspace-only.
+const T_WS = {
+  en: {
+    workspace: 'Workspace & Managed Operations',
+    activate: 'Activate', pause: 'Pause', delete: 'Delete',
+    tabOverview: 'Overview', tabSocial: 'Social Accounts', tabContracts: 'Contracts',
+    tabReminders: 'Reminders', tabTasks: 'Tasks', tabCampaigns: 'Campaigns',
+    tabContent: 'Content', tabNotes: 'Notes', tabReports: 'Weekly Reports',
+    tabFiles: 'Files', tabFinancials: 'Financials',
+    basicInfo: 'Basic Information', activeServices: 'Active Services', noServices: 'No active services assigned.',
+    contactPerson: 'Contact Person', emailLabel: 'Email', phoneLabel: 'Phone / WhatsApp', cityLabel: 'City', startLabel: 'Start Date',
+    noContracts: 'No contracts found.',
+    whatThisCovers: 'What this covers',
+    noScopeHint: 'No scope specified — click "Edit plan" to fill it in, or ask the agent.',
+    planDeliverables: 'Plan / deliverables',
+    deliverySchedule: 'Delivery schedule', taskWord: 'task', tasksWord: 'tasks',
+    noTasksLinked: 'No tasks linked to this contract yet.',
+    paymentSchedule: 'Payment schedule', paid: 'paid',
+    noPayments: 'No payments scheduled.',
+    noReminders: 'No reminders found.',
+    completed: 'Completed', dueLabel: 'Due',
+    noTasks: 'No tasks assigned.', assigneeLabel: 'Assignee', noDate: 'No date', priorityLabel: 'Priority',
+    noCampaigns: 'No campaigns yet.',
+    campaignHint: 'Launch one with "+ New Campaign" or ask the agent: "create a Ramadan campaign for {name}, budget 5000 SAR".',
+    budget: 'Budget', period: 'Period',
+    noContent: 'No posts yet.', contentHint: 'Submit a video or photo with caption + platform via the button above.',
+    notesPlaceholder: 'Quick note about this client — call, meeting, anything worth keeping…',
+    addNote: 'Add note', noNotes: 'No notes or activity yet.',
+    weeklyAgentHint: 'Weekly reports are drafted by the agent. Ask it: "make a weekly report for {name}".',
+    noReports: 'No reports yet.', issued: 'issued',
+    filesHeader: 'Documents & Assets',
+    noFiles: 'No files uploaded yet — use the Upload button to add documents, briefs, or branding.',
+    download: 'Download',
+    monthlyRevenue: 'Monthly Revenue', estMargin: 'Est. Profit Margin', ltv: 'Lifetime Value',
+    financialSnapshots: 'Financial Snapshots', netProfit: 'Projected Net Monthly Profit',
+  },
+  ar: {
+    workspace: 'مساحة العمل والعمليات المُدارة',
+    activate: 'تفعيل', pause: 'إيقاف مؤقت', delete: 'حذف',
+    tabOverview: 'نظرة عامة', tabSocial: 'الحسابات', tabContracts: 'العقود',
+    tabReminders: 'التذكيرات', tabTasks: 'المهام', tabCampaigns: 'الحملات',
+    tabContent: 'المحتوى', tabNotes: 'الملاحظات', tabReports: 'التقارير الأسبوعية',
+    tabFiles: 'الملفات', tabFinancials: 'الماليات',
+    basicInfo: 'المعلومات الأساسية', activeServices: 'الخدمات النشطة', noServices: 'لا توجد خدمات نشطة.',
+    contactPerson: 'جهة الاتصال', emailLabel: 'البريد الإلكتروني', phoneLabel: 'الهاتف / واتساب', cityLabel: 'المدينة', startLabel: 'تاريخ البداية',
+    noContracts: 'لا توجد عقود.',
+    whatThisCovers: 'ما يغطيه العقد',
+    noScopeHint: 'لم يتم تحديد نطاق — اضغط "تعديل الخطة" لإدخاله، أو اطلب من الوكيل.',
+    planDeliverables: 'الخطة / المخرجات',
+    deliverySchedule: 'جدول التسليم', taskWord: 'مهمة', tasksWord: 'مهام',
+    noTasksLinked: 'لا توجد مهام مرتبطة بهذا العقد بعد.',
+    paymentSchedule: 'جدول الدفعات', paid: 'مدفوع',
+    noPayments: 'لا توجد دفعات مجدولة.',
+    noReminders: 'لا توجد تذكيرات.',
+    completed: 'مكتمل', dueLabel: 'الاستحقاق',
+    noTasks: 'لا توجد مهام معينة.', assigneeLabel: 'المسؤول', noDate: 'بدون تاريخ', priorityLabel: 'الأولوية',
+    noCampaigns: 'لا توجد حملات بعد.',
+    campaignHint: 'أنشئ واحدة بـ "+ حملة جديدة" أو اطلب من الوكيل: "أنشئ حملة رمضان لـ {name}، الميزانية ٥٠٠٠ ر.س".',
+    budget: 'الميزانية', period: 'الفترة',
+    noContent: 'لا توجد منشورات بعد.', contentHint: 'أرسل فيديو أو صورة مع تسمية توضيحية + المنصة عبر الزر أعلاه.',
+    notesPlaceholder: 'ملاحظة سريعة عن هذا العميل — مكالمة، اجتماع، أي شيء يستحق التدوين…',
+    addNote: 'إضافة ملاحظة', noNotes: 'لا توجد ملاحظات أو نشاط بعد.',
+    weeklyAgentHint: 'يصوغ الوكيل التقارير الأسبوعية. اطلب منه: "أعدّ تقريراً أسبوعياً لـ {name}".',
+    noReports: 'لا توجد تقارير بعد.', issued: 'صدر في',
+    filesHeader: 'المستندات والأصول',
+    noFiles: 'لم يتم رفع أي ملفات بعد — استخدم زر الرفع لإضافة مستندات أو ملخصات أو هوية بصرية.',
+    download: 'تحميل',
+    monthlyRevenue: 'الإيرادات الشهرية', estMargin: 'هامش الربح التقديري', ltv: 'القيمة الإجمالية للعميل',
+    financialSnapshots: 'لقطات مالية', netProfit: 'صافي الربح الشهري المتوقع',
+  },
+} as const
+
 export const revalidate = 0
 
 export default async function ClientPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  const locale = (await cookies()).get('locale')?.value === 'ar' ? 'ar' : 'en'
+  const t = T_WS[locale]
   
   const [
     { data: client, error },
@@ -99,34 +177,34 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
 
   const tabs = [
     {
-      name: 'Overview',
+      name: t.tabOverview,
       content: (
         <div className="grid gap-6 md:grid-cols-2">
           {/* Basic Info */}
           <div className="premium-card p-6">
             <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-[hsl(var(--primary))]" /> Basic Information
+              <Building2 className="h-5 w-5 text-[hsl(var(--primary))]" /> {t.basicInfo}
             </h3>
             <div className="space-y-4">
               <div className="flex items-start gap-3">
                 <User className="h-4 w-4 text-[hsl(var(--muted-foreground))] mt-0.5" />
-                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">Contact Person</p><p className="form-medium text-sm">{client.full_name}</p></div>
+                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">{t.contactPerson}</p><p className="form-medium text-sm">{client.full_name}</p></div>
               </div>
               <div className="flex items-start gap-3">
                 <Mail className="h-4 w-4 text-[hsl(var(--muted-foreground))] mt-0.5" />
-                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">Email</p><p className="form-medium text-sm">{client.email || '—'}</p></div>
+                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">{t.emailLabel}</p><p className="form-medium text-sm">{client.email || '—'}</p></div>
               </div>
               <div className="flex items-start gap-3">
                 <Phone className="h-4 w-4 text-[hsl(var(--muted-foreground))] mt-0.5" />
-                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">Phone / WhatsApp</p><p className="form-medium text-sm">{client.phone || client.whatsapp || '—'}</p></div>
+                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">{t.phoneLabel}</p><p className="form-medium text-sm">{client.phone || client.whatsapp || '—'}</p></div>
               </div>
               <div className="flex items-start gap-3">
                 <MapPin className="h-4 w-4 text-[hsl(var(--muted-foreground))] mt-0.5" />
-                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">City</p><p className="form-medium text-sm">{client.city || '—'}</p></div>
+                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">{t.cityLabel}</p><p className="form-medium text-sm">{client.city || '—'}</p></div>
               </div>
               <div className="flex items-start gap-3">
                 <Calendar className="h-4 w-4 text-[hsl(var(--muted-foreground))] mt-0.5" />
-                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">Start Date</p><p className="form-medium text-sm">{client.start_date || '—'}</p></div>
+                <div><p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-0.5">{t.startLabel}</p><p className="form-medium text-sm">{client.start_date || '—'}</p></div>
               </div>
             </div>
           </div>
@@ -134,9 +212,9 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
           <div className="space-y-6">
             {/* Services */}
             <div className="premium-card p-6">
-              <h3 className="text-lg font-bold mb-4">Active Services</h3>
+              <h3 className="text-lg font-bold mb-4">{t.activeServices}</h3>
               <div className="flex flex-wrap gap-2">
-                {(services as any[])?.length === 0 && <p className="text-sm text-[hsl(var(--muted-foreground))]">No active services assigned.</p>}
+                {(services as any[])?.length === 0 && <p className="text-sm text-[hsl(var(--muted-foreground))]">{t.noServices}</p>}
                 {(services as any[])?.map((s: any) => (
                   <span key={s.id} className="badge badge-secondary">{s.service_name}</span>
                 ))}
@@ -147,20 +225,20 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
-      name: 'Social Accounts',
+      name: t.tabSocial,
       content: (
         <ConnectedAccountsTab clientId={client.id} initialAccounts={socialAccounts || []} />
       )
     },
     {
-      name: 'Contracts',
+      name: t.tabContracts,
       content: (
         <div className="space-y-5">
           <div className="flex justify-end">
              <AddContractModal clients={[{id: client.id, company_name: client.company_name}]} />
           </div>
           {(contracts as any[])?.length === 0 ? (
-            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]"><p>No contracts found.</p></div>
+            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]"><p>{t.noContracts}</p></div>
           ) : (
             <div className="space-y-5">
               {(contracts as any[])?.map((contract: any) => {
@@ -201,7 +279,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                     {/* WHAT IT'S ABOUT */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">What this covers</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">{t.whatThisCovers}</p>
                         <EditContractPlanModal
                           contractId={contract.id}
                           clientId={client.id}
@@ -211,11 +289,11 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                         />
                       </div>
                       <p className="text-sm leading-relaxed">
-                        {contract.scope || contract.notes || <span className="italic text-[hsl(var(--muted-foreground))]">No scope specified — click "Edit plan" to fill it in, or ask the agent.</span>}
+                        {contract.scope || contract.notes || <span className="italic text-[hsl(var(--muted-foreground))]">{t.noScopeHint}</span>}
                       </p>
                       {Array.isArray(contract.deliverables) && contract.deliverables.length > 0 && (
                         <div className="mt-3 space-y-1.5">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Plan / deliverables</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">{t.planDeliverables}</p>
                           <ul className="space-y-1.5">
                             {contract.deliverables.map((d: any, i: number) => {
                               const done = d?.status === 'done'
@@ -243,11 +321,11 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                     {/* TASK SCHEDULE */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Delivery schedule · {cTasks.length} {cTasks.length === 1 ? 'task' : 'tasks'}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">{t.deliverySchedule} · {cTasks.length} {cTasks.length === 1 ? t.taskWord : t.tasksWord}</p>
                       </div>
                       {cTasks.length === 0 ? (
                         <p className="text-xs text-[hsl(var(--muted-foreground))] italic p-3 rounded-lg bg-[hsl(var(--muted)/0.3)] border border-dashed border-[hsl(var(--border))]">
-                          No tasks linked to this contract yet. Tell the agent: &quot;add task X for contract {contract.title}, due Y, assign to Z&quot;.
+                          {t.noTasksLinked}
                         </p>
                       ) : (
                         <div className="space-y-2">
@@ -291,16 +369,16 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                     {/* PAYMENT SCHEDULE */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Payment schedule</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">{t.paymentSchedule}</p>
                         {totalSched > 0 && (
                           <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
-                            <span className="text-emerald-500 font-semibold">{fmt(totalPaid)}</span> / {fmt(totalSched)} SAR paid
+                            <span className="text-emerald-500 font-semibold">{fmt(totalPaid)}</span> / {fmt(totalSched)} SAR · {t.paid}
                           </p>
                         )}
                       </div>
                       {cPayments.length === 0 ? (
                         <p className="text-xs text-[hsl(var(--muted-foreground))] italic p-3 rounded-lg bg-[hsl(var(--muted)/0.3)] border border-dashed border-[hsl(var(--border))]">
-                          No payments scheduled. Tell the agent: &quot;schedule a payment of 5000 SAR for contract {contract.title}, due next Friday&quot;.
+                          {t.noPayments}
                         </p>
                       ) : (
                         <div className="overflow-x-auto rounded-lg border border-[hsl(var(--border))]">
@@ -340,14 +418,14 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
-      name: 'Reminders',
+      name: t.tabReminders,
       content: (
         <div className="space-y-4">
           <div className="flex justify-end">
              <AddReminderModal clients={[{id: client.id, company_name: client.company_name}]} />
           </div>
           {(reminders as any[])?.length === 0 ? (
-            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]"><p>No reminders found.</p></div>
+            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]"><p>{t.noReminders}</p></div>
           ) : (
             <div className="space-y-3">
               {(reminders as any[])?.map((reminder: any) => (
@@ -355,9 +433,9 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                   <div>
                     <h4 className={`font-semibold flex items-center gap-2 ${reminder.status === 'completed' ? 'line-through opacity-60' : ''}`}>
                       {reminder.title}
-                      {reminder.status === 'completed' && <span className="badge badge-success text-[10px]">Completed</span>}
+                      {reminder.status === 'completed' && <span className="badge badge-success text-[10px]">{t.completed}</span>}
                     </h4>
-                    <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{reminder.type} • Due: {reminder.due_date}</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{reminder.type} • {t.dueLabel}: {reminder.due_date}</p>
                   </div>
                   <span className={`badge ${reminder.priority === 'high' ? 'badge-danger' : reminder.priority === 'urgent' ? 'badge-danger' : reminder.priority === 'medium' ? 'badge-warning' : 'badge-secondary'}`}>{reminder.priority}</span>
                 </div>
@@ -368,25 +446,25 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
-      name: 'Tasks',
+      name: t.tabTasks,
       content: (
         <div className="space-y-4">
           <div className="flex justify-end">
              <AddTaskModal clients={[{id: client.id, company_name: client.company_name}]} teamMembers={teamMembers || []} />
           </div>
           {(tasks as any[])?.length === 0 ? (
-            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]"><p>No tasks assigned.</p></div>
+            <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]"><p>{t.noTasks}</p></div>
           ) : (
             <div className="space-y-3">
               {tasks?.map((task: any) => (
                 <div key={task.id} className="premium-card p-4 flex justify-between items-center">
                   <div>
                     <h4 className="font-semibold">{task.title}</h4>
-                    <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Assignee: {findMember(task.assignee_id)} • Due: {task.due_date || 'No date'}</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{t.assigneeLabel}: {findMember(task.assignee_id)} • {t.dueLabel}: {task.due_date || t.noDate}</p>
                   </div>
                   <div className="text-right">
                     <span className={`badge ${task.status === 'completed' ? 'badge-success' : task.status === 'in_progress' ? 'badge-warning' : 'badge-secondary'}`}>{task.status?.replace('_', ' ')}</span>
-                    <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1 capitalize">Priority: <strong className={task.priority === 'urgent' || task.priority === 'high' ? 'text-red-500' : ''}>{task.priority}</strong></p>
+                    <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1 capitalize">{t.priorityLabel}: <strong className={task.priority === 'urgent' || task.priority === 'high' ? 'text-red-500' : ''}>{task.priority}</strong></p>
                   </div>
                 </div>
               ))}
@@ -396,7 +474,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
-      name: 'Campaigns',
+      name: t.tabCampaigns,
       content: (
         <div className="space-y-4">
           <div className="flex justify-end">
@@ -404,10 +482,8 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
           </div>
           {(campaigns as any[])?.length === 0 ? (
             <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]">
-              <p>No campaigns yet.</p>
-              <p className="text-xs mt-1 italic">
-                Launch one with "+ New Campaign" or ask the agent: "create a Ramadan campaign for {client.company_name}, budget 5000 SAR".
-              </p>
+              <p>{t.noCampaigns}</p>
+              <p className="text-xs mt-1 italic">{t.campaignHint.replace('{name}', client.company_name)}</p>
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -428,11 +504,11 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-[11px]">
                       <div>
-                        <p className="text-[9px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] font-bold">Budget</p>
+                        <p className="text-[9px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] font-bold">{t.budget}</p>
                         <p className="font-semibold">{c.budget != null ? `${Number(c.budget).toLocaleString()} SAR` : '—'}</p>
                       </div>
                       <div>
-                        <p className="text-[9px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] font-bold">Period</p>
+                        <p className="text-[9px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] font-bold">{t.period}</p>
                         <p className="font-semibold">{fmtDate(c.start_date)} → {fmtDate(c.end_date)}</p>
                       </div>
                     </div>
@@ -448,7 +524,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
-      name: 'Content',
+      name: t.tabContent,
       content: (
         <div className="space-y-4">
           <div className="flex justify-end">
@@ -456,8 +532,8 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
           </div>
           {(contentItems as any[])?.length === 0 ? (
             <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]">
-              <p>No posts yet.</p>
-              <p className="text-xs mt-1 italic">Submit a video or photo with caption + platform via the button above.</p>
+              <p>{t.noContent}</p>
+              <p className="text-xs mt-1 italic">{t.contentHint}</p>
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -509,7 +585,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
-      name: 'Notes',
+      name: t.tabNotes,
       content: (
         <div className="space-y-4">
           <div className="premium-card p-5">
@@ -518,17 +594,17 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                 name="summary"
                 required
                 rows={2}
-                placeholder="Quick note about this client — call, meeting, anything worth keeping…"
+                placeholder={t.notesPlaceholder}
                 className="form-input flex-1 resize-none"
               />
               <button type="submit" className="btn btn-primary md:self-stretch md:px-6">
-                <Plus className="h-4 w-4" /> Add note
+                <Plus className="h-4 w-4" /> {t.addNote}
               </button>
             </form>
           </div>
           {(logs as any[])?.length === 0 ? (
             <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]">
-              <p>No notes or activity yet.</p>
+              <p>{t.noNotes}</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -550,16 +626,16 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
-      name: 'Weekly Reports',
+      name: t.tabReports,
       content: (
         <div className="space-y-4">
           <div className="premium-card p-4 text-xs text-[hsl(var(--muted-foreground))] flex items-center gap-2">
             <FileBarChart2 className="h-4 w-4" />
-            Weekly reports are drafted by the agent. Ask it: "make a weekly report for {client.company_name}".
+            {t.weeklyAgentHint.replace('{name}', client.company_name)}
           </div>
           {(weeklyReports as any[])?.length === 0 ? (
             <div className="premium-card p-12 text-center text-[hsl(var(--muted-foreground))]">
-              <p>No reports yet.</p>
+              <p>{t.noReports}</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -571,7 +647,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                         <p className="font-bold text-sm">{r.report_number}</p>
                         <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
                           {fmtDate(r.period_start)} → {fmtDate(r.period_end)}
-                          {r.issue_date && <> · issued {fmtDate(r.issue_date)}</>}
+                          {r.issue_date && <> · {t.issued} {fmtDate(r.issue_date)}</>}
                         </p>
                       </div>
                       <span className={`badge text-[10px] ${r.status === 'sent' ? 'badge-active' : r.status === 'archived' ? 'badge-secondary' : 'badge-warning'}`}>{r.status}</span>
@@ -585,7 +661,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
-      name: 'Files',
+      name: t.tabFiles,
       content: (
         <div className="space-y-4">
           <div className="flex justify-end">
@@ -595,9 +671,9 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
             />
           </div>
           <div className="premium-card p-6">
-            <h3 className="text-lg font-bold mb-4">Documents & Assets</h3>
+            <h3 className="text-lg font-bold mb-4">{t.filesHeader}</h3>
             {(files as any[])?.length === 0 ? (
-               <p className="text-sm text-[hsl(var(--muted-foreground))] text-center py-6">No files uploaded yet — use the Upload button to add documents, briefs, or branding.</p>
+               <p className="text-sm text-[hsl(var(--muted-foreground))] text-center py-6">{t.noFiles}</p>
             ) : (
               <div className="space-y-3">
                 {(files as any[])?.map((file: any) => (
@@ -606,7 +682,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                       <p className="text-sm font-medium">{file.name}</p>
                       <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase mt-0.5">{file.category || 'Asset'} • {file.file_type}</p>
                     </div>
-                    <a href={file.file_path ?? file.storage_path} download className="btn btn-ghost btn-xs text-[hsl(var(--primary))]">Download</a>
+                    <a href={file.file_path ?? file.storage_path} download className="btn btn-ghost btn-xs text-[hsl(var(--primary))]">{t.download}</a>
                   </div>
                 ))}
               </div>
@@ -616,25 +692,25 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       )
     },
     {
-      name: 'Financials',
+      name: t.tabFinancials,
       content: (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
              <div className="p-4 rounded-xl border border-[hsl(var(--border))] bg-emerald-500/5">
-                <p className="text-[10px] font-bold text-emerald-600 uppercase">Monthly Revenue</p>
+                <p className="text-[10px] font-bold text-emerald-600 uppercase">{t.monthlyRevenue}</p>
                 <p className="text-2xl font-bold mt-1">{(contracts?.filter((c: any) => c.status === 'active').reduce((sum: number, c: any) => sum + (c.value || 0), 0) || 0).toLocaleString()} <span className="text-xs opacity-60">SAR</span></p>
              </div>
              <div className="p-4 rounded-xl border border-[hsl(var(--border))]">
-                <p className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase">Est. Profit Margin</p>
+                <p className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase">{t.estMargin}</p>
                 <p className="text-2xl font-bold mt-1">78%</p>
              </div>
              <div className="p-4 rounded-xl border border-[hsl(var(--border))]">
-                <p className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase">Lifetime Value</p>
+                <p className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase">{t.ltv}</p>
                 <p className="text-2xl font-bold mt-1">124,000 <span className="text-xs opacity-60">SAR</span></p>
              </div>
           </div>
           <div className="premium-card p-6">
-             <h3 className="font-bold text-sm mb-4">Financial Snapshots</h3>
+             <h3 className="font-bold text-sm mb-4">{t.financialSnapshots}</h3>
              <div className="space-y-3">
                 <div className="flex justify-between items-center p-3 rounded-lg bg-[hsl(var(--muted)/0.3)]">
                    <span className="text-xs font-medium">Service Retention Fee</span>
@@ -650,7 +726,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                 </div>
              </div>
              <div className="mt-6 pt-4 border-t border-[hsl(var(--border))] flex justify-between items-center">
-                <span className="font-bold text-sm">Projected Net Monthly Profit</span>
+                <span className="font-bold text-sm">{t.netProfit}</span>
                 <span className="font-bold text-lg text-emerald-600">13,300 SAR</span>
              </div>
           </div>
@@ -673,25 +749,25 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                 <h1 className="text-2xl font-bold tracking-tight">{client.company_name}</h1>
                 <span className={`badge ${statusBadge[client.status] || 'badge-secondary'}`}>{client.status}</span>
               </div>
-              <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">Workspace & Managed Operations</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">{t.workspace}</p>
             </div>
           </div>
         </div>
-        
+
         <div className="flex flex-wrap items-center gap-2">
            <form action={setStatusActive}>
              <button type="submit" className="btn btn-secondary btn-sm" disabled={client.status === 'active'}>
-               <PlayCircle className="h-4 w-4" /> Activate
+               <PlayCircle className="h-4 w-4" /> {t.activate}
              </button>
            </form>
            <form action={setStatusPaused}>
              <button type="submit" className="btn btn-secondary btn-sm" disabled={client.status === 'paused'}>
-               <PauseCircle className="h-4 w-4" /> Pause
+               <PauseCircle className="h-4 w-4" /> {t.pause}
              </button>
            </form>
            <form action={deleteAction}>
              <button type="submit" className="btn btn-ghost btn-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
-               <Trash2 className="h-4 w-4" /> Delete
+               <Trash2 className="h-4 w-4" /> {t.delete}
              </button>
            </form>
         </div>

@@ -32,6 +32,16 @@ export type NewClientWizardPayload = {
     scope?: string
     deliverables?: Array<{ id: string; title: string; detail?: string; status?: 'pending' }>
   }
+  // Pre-schedules N weekly_reports rows starting from start_date_iso.
+  // Each row's period_end becomes a calendar event automatically (the
+  // /calendar page already aggregates weekly_reports). assignee_team_member_id
+  // is the team_members.id who's responsible — they get a notification per
+  // scheduled report so they know it's on their plate.
+  report_schedule?: {
+    assignee_team_member_id: string
+    weeks: number              // how many weekly_reports rows to pre-create
+    start_date_iso: string     // ISO date — period_start of the FIRST report
+  }
   tasks?: Array<{ title: string; due_date?: string; priority?: 'low' | 'medium' | 'high' | 'urgent' }>
   reminders?: Array<{ title: string; due_date: string; type?: string; priority?: 'low' | 'medium' | 'high' }>
 }
@@ -120,16 +130,139 @@ export async function createClientWithKickoff(
       if (rErr) console.warn('[wizard] reminders insert failed:', rErr.message)
     }
 
+    // 5. Optional weekly-reports schedule. Pre-creates N weekly_reports
+    //    rows so the Calendar shows the upcoming due-dates and the
+    //    assignee knows what's on their plate. Each row has period_start
+    //    set to the start of its week and period_end six days later;
+    //    issue_date is the Sunday after period_end (when the report is
+    //    due to the client). Notifies the assignee in one summary message.
+    if (payload.report_schedule?.assignee_team_member_id && payload.report_schedule.weeks > 0) {
+      try {
+        await scheduleWeeklyReports({
+          clientId: client.id,
+          clientCompany: basics.company_name.trim(),
+          clientContact: basics.full_name.trim(),
+          clientEmail: basics.email?.trim() || null,
+          assigneeId: payload.report_schedule.assignee_team_member_id,
+          weeks: Math.max(1, Math.min(52, payload.report_schedule.weeks)),
+          startDateIso: payload.report_schedule.start_date_iso || new Date().toISOString().slice(0, 10),
+        })
+      } catch (sErr: any) {
+        // Same posture as the contract step: don't fail the wizard if the
+        // schedule fails — surface a warning to the caller.
+        console.warn('[wizard] weekly-report schedule failed:', sErr?.message ?? sErr)
+      }
+    }
+
     revalidatePath('/clients')
     revalidatePath('/contracts')
     revalidatePath('/tasks')
     revalidatePath('/reminders')
+    revalidatePath('/reports')
+    revalidatePath('/calendar')
+    revalidatePath('/notifications')
     revalidatePath('/')
     return { ok: true, clientId: client.id }
   } catch (err: any) {
     console.error('createClientWithKickoff crashed:', err)
     return { ok: false, error: err?.message ?? 'Unexpected error' }
   }
+}
+
+// =============================================================================
+// Weekly-report scheduling. Pulled out of createClientWithKickoff so the
+// logic stays readable and can be re-used (e.g. from a future "extend
+// schedule" admin tool).
+// =============================================================================
+
+// ISO-week number for a given date. Matches the convention used elsewhere
+// (src/app/actions/reports.ts:isoYearWeek).
+function isoYearWeek(d: Date) {
+  const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  const dayNr = (target.getUTCDay() + 6) % 7
+  target.setUTCDate(target.getUTCDate() - dayNr + 3)
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4))
+  const week = 1 + Math.round(
+    ((target.getTime() - firstThursday.getTime()) / 86400000 - 3 +
+      ((firstThursday.getUTCDay() + 6) % 7)) / 7
+  )
+  return { year: target.getUTCFullYear(), week }
+}
+
+function addDays(iso: string, days: number): string {
+  const d = new Date(iso + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+async function scheduleWeeklyReports(args: {
+  clientId: string
+  clientCompany: string
+  clientContact: string
+  clientEmail: string | null
+  assigneeId: string
+  weeks: number
+  startDateIso: string
+}) {
+  // Resolve the assignee's auth user_id so notifications land on the
+  // right user feed (notifications.user_id = auth user, not team_member).
+  const { data: assignee } = await (supabaseClient as any)
+    .from('team_members')
+    .select('id, user_id, full_name')
+    .eq('id', args.assigneeId)
+    .maybeSingle()
+  const assigneeUserId: string | null = (assignee as any)?.user_id ?? null
+  const assigneeName: string = (assignee as any)?.full_name ?? 'assignee'
+
+  // Build the rows. period_start moves forward by 7 days each iteration;
+  // period_end is +6 days; issue_date is +7 (Sunday after the period).
+  const rows: any[] = []
+  for (let i = 0; i < args.weeks; i++) {
+    const periodStart = addDays(args.startDateIso, i * 7)
+    const periodEnd = addDays(periodStart, 6)
+    const issueDate = addDays(periodStart, 7)
+    const { year, week } = isoYearWeek(new Date(periodStart + 'T00:00:00Z'))
+    // report_number suffixed with -1/-2/... if a row for that ISO week
+    // already exists — defer the dedupe to insert-time conflict handling
+    // since we batch.
+    const report_number = `WR-${year}-W${String(week).padStart(2, '0')}-${args.clientCompany.replace(/[^A-Za-z0-9]+/g, '').slice(0, 6).toUpperCase() || 'CL'}`
+    rows.push({
+      client_id: args.clientId,
+      client_name_snapshot: args.clientContact,
+      customer_name: args.clientContact,
+      customer_company: args.clientCompany,
+      period_start: periodStart,
+      period_end: periodEnd,
+      issue_date: issueDate,
+      status: 'draft',
+      report_number,
+      assignee_id: args.assigneeId,
+      prepared_for_contact: args.clientContact,
+      prepared_for_email: args.clientEmail,
+      services: [],
+    })
+  }
+
+  const { error: insErr } = await (supabaseClient as any)
+    .from('weekly_reports')
+    .insert(rows)
+  if (insErr) throw new Error(`weekly_reports insert failed: ${insErr.message}`)
+
+  // One summary notification so the assignee's bell shows it immediately.
+  // user_id targets the specific user; admin-broadcast notifications use
+  // null. If we can't resolve the assignee's auth user, fall back to
+  // admin-broadcast so the assignment still shows up somewhere.
+  await (supabaseClient as any).from('notifications').insert({
+    user_id: assigneeUserId,
+    title: `Weekly reports assigned: ${args.clientCompany}`,
+    message:
+      `${assigneeName}, you've been set as the owner of ${args.weeks} weekly reports for ${args.clientCompany}. ` +
+      `First period: ${args.startDateIso} → ${addDays(args.startDateIso, 6)}. ` +
+      `Check the Calendar / Weekly Reports page when the first one is due.`,
+    type: 'report_assigned',
+    related_id: args.clientId,
+    is_read: false,
+  })
 }
 
 export async function createClient(formData: FormData) {

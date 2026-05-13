@@ -9,15 +9,191 @@ import {
   CheckSquare, Bell, ChevronRight, ChevronLeft, Loader2, Check,
 } from 'lucide-react'
 import { createClientWithKickoff, type NewClientWizardPayload } from '@/app/actions/clients'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 const uid = () => Math.random().toString(36).slice(2, 9)
+
+const STRINGS = {
+  en: {
+    pageTitle: 'Add New Client',
+    pageSub: 'Three quick steps — basics, contract, and kickoff items.',
+    stepBasics: 'Basics',
+    stepContract: 'Contract',
+    stepKickoff: 'Kickoff',
+    companyDetails: 'Company details',
+    primaryContact: 'Primary contact',
+    companyName: 'Company name',
+    industry: 'Industry',
+    statusLabel: 'Status',
+    contactName: 'Contact name',
+    emailLabel: 'Email',
+    phoneLabel: 'Phone',
+    cityLabel: 'City',
+    initialNotes: 'Initial notes (optional)',
+    notesPlaceholder: "Anything worth remembering up front…",
+    companyPh: 'e.g. Acme Corp',
+    industryPh: 'e.g. Real Estate, E-commerce',
+    contactPh: 'Full name',
+    emailPh: 'contact@company.com',
+    phonePh: '+966 5X XXX XXXX',
+    cityPh: 'e.g. Riyadh',
+    statusToContact: 'To contact',
+    statusLead: 'Lead (prospect)',
+    statusActive: 'Active client',
+    statusPaused: 'Paused',
+    attachContract: 'Attach an initial contract',
+    attachContractHint: "Skip if you're still in the lead/discovery phase — you can add one later.",
+    contractTitle: 'Contract title',
+    contractTitlePh: 'e.g. Social Media Management 2026',
+    typeLabel: 'Type',
+    typeRetainer: 'Retainer',
+    typeProject: 'Project',
+    typeOneTime: 'One-time',
+    start: 'Start',
+    end: 'End',
+    valueLabel: 'Monthly / total value (SAR)',
+    valuePh: '0.00',
+    scopeLabel: 'Scope / what this covers',
+    scopePh: 'Plain-language summary of what the engagement covers.',
+    deliverables: 'Deliverables',
+    addItem: 'Add item',
+    deliverableEmptyHint: "Optional — itemize the concrete things you'll deliver.",
+    deliverableTitlePh: 'Title (e.g. 12 IG posts/month)',
+    deliverableDetailPh: 'Detail (optional)',
+    kickoffIntro: 'Optional — pre-seed the workspace with a couple of tasks and reminders so the team has something to act on day one.',
+    initialTasks: 'Initial tasks',
+    addTask: 'Add task',
+    tasksEmpty: 'No initial tasks — skip if not needed.',
+    taskTitlePh: 'Task title',
+    initialReminders: 'Initial reminders',
+    addReminder: 'Add reminder',
+    remindersEmpty: 'No initial reminders — skip if not needed.',
+    reminderTitlePh: 'Reminder title (e.g. Send onboarding doc)',
+    priLow: 'low',
+    priMed: 'med',
+    priHigh: 'high',
+    priUrgent: 'urgent',
+    typeCall: 'call',
+    typeMeeting: 'meeting',
+    typeFollowUp: 'follow up',
+    typePayment: 'payment',
+    back: 'Back',
+    cancel: 'Cancel',
+    next: 'Next',
+    createBtn: 'Create client',
+    creating: 'Creating…',
+    errMissing: 'Company name and primary contact are required.',
+    weeklySchedule: 'Weekly reports schedule',
+    weeklyScheduleIntro: 'Pre-create weekly report drafts and assign a responsible person. Each report will appear on the calendar at its due date and the assignee gets a notification.',
+    enableSchedule: 'Auto-create weekly report drafts',
+    assigneeLabel: 'Responsible person',
+    pickAssignee: 'Select a team member…',
+    weeksLabel: 'How many weeks',
+    firstWeekStart: 'First week starts',
+    noTeamHint: 'You need at least one team member before you can assign weekly reports. Add one from the Team page first.',
+  },
+  ar: {
+    pageTitle: 'إضافة عميل جديد',
+    pageSub: 'ثلاث خطوات سريعة — الأساسيات، العقد، وعناصر البداية.',
+    stepBasics: 'الأساسيات',
+    stepContract: 'العقد',
+    stepKickoff: 'الانطلاق',
+    companyDetails: 'بيانات الشركة',
+    primaryContact: 'جهة الاتصال الرئيسية',
+    companyName: 'اسم الشركة',
+    industry: 'نشاط الشركة',
+    statusLabel: 'الحالة',
+    contactName: 'اسم المسؤول',
+    emailLabel: 'البريد الإلكتروني',
+    phoneLabel: 'الجوال',
+    cityLabel: 'المدينة',
+    initialNotes: 'ملاحظات أولية (اختياري)',
+    notesPlaceholder: 'أي شيء يستحق التدوين من البداية…',
+    companyPh: 'مثال: شركة آكمي',
+    industryPh: 'مثال: عقارات، تجارة إلكترونية',
+    contactPh: 'الاسم الكامل',
+    emailPh: 'contact@company.com',
+    phonePh: '+966 5X XXX XXXX',
+    cityPh: 'مثال: الرياض',
+    statusToContact: 'للتواصل',
+    statusLead: 'محتمل',
+    statusActive: 'عميل نشط',
+    statusPaused: 'متوقف',
+    attachContract: 'إرفاق عقد مبدئي',
+    attachContractHint: 'تخطَّ إذا كنت لا تزال في مرحلة الاستكشاف — يمكنك إضافته لاحقاً.',
+    contractTitle: 'عنوان العقد',
+    contractTitlePh: 'مثال: إدارة سوشيال ميديا ٢٠٢٦',
+    typeLabel: 'النوع',
+    typeRetainer: 'اشتراك شهري',
+    typeProject: 'مشروع',
+    typeOneTime: 'لمرة واحدة',
+    start: 'البداية',
+    end: 'النهاية',
+    valueLabel: 'القيمة الشهرية / الإجمالية (ر.س)',
+    valuePh: '0.00',
+    scopeLabel: 'نطاق العمل / ما يغطيه العقد',
+    scopePh: 'وصف موجز بلغة بسيطة لما يشمله العقد.',
+    deliverables: 'المخرجات',
+    addItem: 'إضافة بند',
+    deliverableEmptyHint: 'اختياري — أدرج الأشياء المحددة التي ستسلمها.',
+    deliverableTitlePh: 'العنوان (مثال: ١٢ منشور إنستجرام/الشهر)',
+    deliverableDetailPh: 'تفاصيل (اختياري)',
+    kickoffIntro: 'اختياري — جهّز مساحة العمل ببعض المهام والتذكيرات حتى يبدأ الفريق العمل من اليوم الأول.',
+    initialTasks: 'المهام الأولية',
+    addTask: 'إضافة مهمة',
+    tasksEmpty: 'لا توجد مهام أولية — تخطَّ إذا لم تكن مطلوبة.',
+    taskTitlePh: 'عنوان المهمة',
+    initialReminders: 'التذكيرات الأولية',
+    addReminder: 'إضافة تذكير',
+    remindersEmpty: 'لا توجد تذكيرات أولية — تخطَّ إذا لم تكن مطلوبة.',
+    reminderTitlePh: 'عنوان التذكير (مثال: إرسال وثيقة الإعداد)',
+    priLow: 'منخفضة',
+    priMed: 'متوسطة',
+    priHigh: 'مرتفعة',
+    priUrgent: 'عاجلة',
+    typeCall: 'مكالمة',
+    typeMeeting: 'اجتماع',
+    typeFollowUp: 'متابعة',
+    typePayment: 'دفعة',
+    back: 'السابق',
+    cancel: 'إلغاء',
+    next: 'التالي',
+    createBtn: 'إنشاء العميل',
+    creating: 'جاري الإنشاء…',
+    errMissing: 'اسم الشركة وجهة الاتصال مطلوبان.',
+    weeklySchedule: 'جدول التقارير الأسبوعية',
+    weeklyScheduleIntro: 'أنشئ مسودات تقارير أسبوعية مسبقاً وعيّن مسؤولاً عنها. كل تقرير سيظهر في التقويم في تاريخ استحقاقه، والمسؤول سيتلقى إشعاراً.',
+    enableSchedule: 'إنشاء مسودات تقارير أسبوعية تلقائياً',
+    assigneeLabel: 'الشخص المسؤول',
+    pickAssignee: 'اختر عضواً من الفريق…',
+    weeksLabel: 'عدد الأسابيع',
+    firstWeekStart: 'يبدأ الأسبوع الأول',
+    noTeamHint: 'تحتاج إلى عضو واحد على الأقل في الفريق لتعيين التقارير الأسبوعية. أضف عضواً من صفحة الفريق أولاً.',
+  },
+} as const
 
 type Deliverable = { id: string; title: string; detail: string }
 type KickoffTask = { id: string; title: string; due_date: string; priority: 'low' | 'medium' | 'high' | 'urgent' }
 type KickoffReminder = { id: string; title: string; due_date: string; type: string; priority: 'low' | 'medium' | 'high' }
+type TeamMemberLite = { id: string; full_name: string; role?: string; job_title?: string }
 
-export function NewClientWizard() {
+// Find the upcoming Monday (or today, if today IS a Monday). Saudi
+// workweek is Sun-Thu, but report periods anchored on Monday match how
+// the existing `WR-YYYY-WNN` numbering already works (ISO week).
+function nextMondayISO(): string {
+  const d = new Date()
+  const day = d.getDay() // 0 Sun .. 6 Sat
+  const diff = (8 - day) % 7 || 7   // always at least 1 day forward
+  // Actually if today IS a Monday, use today.
+  const adj = day === 1 ? 0 : ((8 - day) % 7 || 0)
+  d.setDate(d.getDate() + adj)
+  return d.toISOString().slice(0, 10)
+}
+
+export function NewClientWizard({ teamMembers = [] }: { teamMembers?: TeamMemberLite[] }) {
   const router = useRouter()
+  const { language, dir } = useLanguage()
+  const T = STRINGS[language === 'ar' ? 'ar' : 'en']
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -51,6 +227,12 @@ export function NewClientWizard() {
   const [tasks, setTasks] = useState<KickoffTask[]>([])
   const [reminders, setReminders] = useState<KickoffReminder[]>([])
 
+  // Step 3 — weekly report schedule
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
+  const [scheduleAssignee, setScheduleAssignee] = useState<string>('')
+  const [scheduleWeeks, setScheduleWeeks] = useState<number>(12)
+  const [scheduleStart, setScheduleStart] = useState<string>(nextMondayISO())
+
   // Step 1 → 2 guard.
   const basicsValid = basics.company_name.trim() && basics.full_name.trim()
 
@@ -61,7 +243,7 @@ export function NewClientWizard() {
 
   async function submit() {
     setError(null)
-    if (!basicsValid) { setError('Company name and primary contact are required.'); setStep(1); return }
+    if (!basicsValid) { setError(T.errMissing); setStep(1); return }
     setSubmitting(true)
     try {
       const payload: NewClientWizardPayload = {
@@ -95,6 +277,13 @@ export function NewClientWizard() {
         reminders: reminders
           .filter((r) => r.title.trim() && r.due_date)
           .map((r) => ({ title: r.title.trim(), due_date: r.due_date, type: r.type || 'follow_up', priority: r.priority })),
+        report_schedule: scheduleEnabled && scheduleAssignee && scheduleWeeks > 0
+          ? {
+              assignee_team_member_id: scheduleAssignee,
+              weeks: scheduleWeeks,
+              start_date_iso: scheduleStart || nextMondayISO(),
+            }
+          : undefined,
       }
 
       const result = await createClientWithKickoff(payload)
@@ -108,24 +297,24 @@ export function NewClientWizard() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto pb-8">
+    <div className="space-y-6 max-w-3xl mx-auto pb-8" dir={dir}>
       {/* Header */}
       <div className="flex items-center gap-4 section-header mb-0 border-b-0 pb-0">
         <Link href="/clients" className="btn btn-ghost btn-icon">
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Add New Client</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">Three quick steps — basics, contract, and kickoff items.</p>
+          <h1 className="text-2xl font-bold tracking-tight">{T.pageTitle}</h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">{T.pageSub}</p>
         </div>
       </div>
 
       {/* Stepper */}
       <div className="flex items-center gap-2">
         {[
-          { n: 1, label: 'Basics', icon: Building2 },
-          { n: 2, label: 'Contract', icon: FileSignature },
-          { n: 3, label: 'Kickoff', icon: ListChecks },
+          { n: 1, label: T.stepBasics, icon: Building2 },
+          { n: 2, label: T.stepContract, icon: FileSignature },
+          { n: 3, label: T.stepKickoff, icon: ListChecks },
         ].map((s, i, arr) => {
           const active = step === s.n
           const done = step > s.n
@@ -159,49 +348,49 @@ export function NewClientWizard() {
           <div className="space-y-6">
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-4">
-                <h3 className="font-bold text-sm border-b border-[hsl(var(--border))] pb-2">Company details</h3>
+                <h3 className="font-bold text-sm border-b border-[hsl(var(--border))] pb-2">{T.companyDetails}</h3>
 
-                <Field icon={Building2} label="Company name" required>
-                  <input value={basics.company_name} onChange={(e) => setBasics({ ...basics, company_name: e.target.value })} className="form-input" placeholder="e.g. Acme Corp" />
+                <Field icon={Building2} label={T.companyName} required>
+                  <input value={basics.company_name} onChange={(e) => setBasics({ ...basics, company_name: e.target.value })} className="form-input" placeholder={T.companyPh} />
                 </Field>
 
-                <Field icon={Briefcase} label="Industry">
-                  <input value={basics.business_type} onChange={(e) => setBasics({ ...basics, business_type: e.target.value })} className="form-input" placeholder="e.g. Real Estate, E-commerce" />
+                <Field icon={Briefcase} label={T.industry}>
+                  <input value={basics.business_type} onChange={(e) => setBasics({ ...basics, business_type: e.target.value })} className="form-input" placeholder={T.industryPh} />
                 </Field>
 
-                <Field label="Status">
+                <Field label={T.statusLabel}>
                   <select value={basics.status} onChange={(e) => setBasics({ ...basics, status: e.target.value as any })} className="form-input">
-                    <option value="to_contact">To contact</option>
-                    <option value="lead">Lead (prospect)</option>
-                    <option value="active">Active client</option>
-                    <option value="paused">Paused</option>
+                    <option value="to_contact">{T.statusToContact}</option>
+                    <option value="lead">{T.statusLead}</option>
+                    <option value="active">{T.statusActive}</option>
+                    <option value="paused">{T.statusPaused}</option>
                   </select>
                 </Field>
               </div>
 
               <div className="space-y-4">
-                <h3 className="font-bold text-sm border-b border-[hsl(var(--border))] pb-2">Primary contact</h3>
+                <h3 className="font-bold text-sm border-b border-[hsl(var(--border))] pb-2">{T.primaryContact}</h3>
 
-                <Field icon={User} label="Contact name" required>
-                  <input value={basics.full_name} onChange={(e) => setBasics({ ...basics, full_name: e.target.value })} className="form-input" placeholder="Full name" />
+                <Field icon={User} label={T.contactName} required>
+                  <input value={basics.full_name} onChange={(e) => setBasics({ ...basics, full_name: e.target.value })} className="form-input" placeholder={T.contactPh} />
                 </Field>
 
-                <Field icon={Mail} label="Email">
-                  <input type="email" value={basics.email} onChange={(e) => setBasics({ ...basics, email: e.target.value })} className="form-input" placeholder="contact@company.com" />
+                <Field icon={Mail} label={T.emailLabel}>
+                  <input type="email" value={basics.email} onChange={(e) => setBasics({ ...basics, email: e.target.value })} className="form-input" placeholder={T.emailPh} />
                 </Field>
 
-                <Field icon={Phone} label="Phone">
-                  <input value={basics.phone} onChange={(e) => setBasics({ ...basics, phone: e.target.value })} className="form-input" placeholder="+966 5X XXX XXXX" />
+                <Field icon={Phone} label={T.phoneLabel}>
+                  <input value={basics.phone} onChange={(e) => setBasics({ ...basics, phone: e.target.value })} className="form-input" placeholder={T.phonePh} />
                 </Field>
 
-                <Field icon={MapPin} label="City">
-                  <input value={basics.city} onChange={(e) => setBasics({ ...basics, city: e.target.value })} className="form-input" placeholder="e.g. Riyadh" />
+                <Field icon={MapPin} label={T.cityLabel}>
+                  <input value={basics.city} onChange={(e) => setBasics({ ...basics, city: e.target.value })} className="form-input" placeholder={T.cityPh} />
                 </Field>
               </div>
             </div>
 
-            <Field label="Initial notes (optional)">
-              <textarea value={basics.notes} onChange={(e) => setBasics({ ...basics, notes: e.target.value })} rows={2} className="form-input resize-none" placeholder="Anything worth remembering up front…" />
+            <Field label={T.initialNotes}>
+              <textarea value={basics.notes} onChange={(e) => setBasics({ ...basics, notes: e.target.value })} rows={2} className="form-input resize-none" placeholder={T.notesPlaceholder} />
             </Field>
           </div>
         )}
@@ -217,53 +406,53 @@ export function NewClientWizard() {
                 className="h-4 w-4 accent-[hsl(var(--primary))]"
               />
               <div>
-                <p className="font-semibold text-sm">Attach an initial contract</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Skip if you're still in the lead/discovery phase — you can add one later.</p>
+                <p className="font-semibold text-sm">{T.attachContract}</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">{T.attachContractHint}</p>
               </div>
             </label>
 
             {contractEnabled && (
               <div className="space-y-4">
-                <Field label="Contract title" required>
-                  <input value={contract.title} onChange={(e) => setContract({ ...contract, title: e.target.value })} className="form-input" placeholder="e.g. Social Media Management 2026" />
+                <Field label={T.contractTitle} required>
+                  <input value={contract.title} onChange={(e) => setContract({ ...contract, title: e.target.value })} className="form-input" placeholder={T.contractTitlePh} />
                 </Field>
 
                 <div className="grid grid-cols-3 gap-3">
-                  <Field label="Type">
+                  <Field label={T.typeLabel}>
                     <select value={contract.contract_type} onChange={(e) => setContract({ ...contract, contract_type: e.target.value as any })} className="form-input">
-                      <option value="Retainer">Retainer</option>
-                      <option value="Project">Project</option>
-                      <option value="One-time">One-time</option>
+                      <option value="Retainer">{T.typeRetainer}</option>
+                      <option value="Project">{T.typeProject}</option>
+                      <option value="One-time">{T.typeOneTime}</option>
                     </select>
                   </Field>
-                  <Field icon={Calendar} label="Start" required>
+                  <Field icon={Calendar} label={T.start} required>
                     <input type="date" value={contract.start_date} onChange={(e) => setContract({ ...contract, start_date: e.target.value })} className="form-input" />
                   </Field>
-                  <Field icon={Calendar} label="End">
+                  <Field icon={Calendar} label={T.end}>
                     <input type="date" value={contract.end_date} onChange={(e) => setContract({ ...contract, end_date: e.target.value })} className="form-input" />
                   </Field>
                 </div>
 
-                <Field icon={DollarSign} label="Monthly / total value (SAR)">
-                  <input type="number" step="0.01" value={contract.value} onChange={(e) => setContract({ ...contract, value: e.target.value })} className="form-input" placeholder="0.00" />
+                <Field icon={DollarSign} label={T.valueLabel}>
+                  <input type="number" step="0.01" value={contract.value} onChange={(e) => setContract({ ...contract, value: e.target.value })} className="form-input" placeholder={T.valuePh} />
                 </Field>
 
-                <Field label="Scope / what this covers">
-                  <textarea value={contract.scope} onChange={(e) => setContract({ ...contract, scope: e.target.value })} rows={3} className="form-input resize-none" placeholder="Plain-language summary of what the engagement covers." />
+                <Field label={T.scopeLabel}>
+                  <textarea value={contract.scope} onChange={(e) => setContract({ ...contract, scope: e.target.value })} rows={3} className="form-input resize-none" placeholder={T.scopePh} />
                 </Field>
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="form-label flex items-center gap-2 mb-0">
-                      <ListChecks className="h-4 w-4 text-[hsl(var(--primary))]" /> Deliverables
+                      <ListChecks className="h-4 w-4 text-[hsl(var(--primary))]" /> {T.deliverables}
                     </label>
                     <button type="button" onClick={() => setDeliverables((d) => [...d, { id: uid(), title: '', detail: '' }])} className="text-xs font-semibold px-2 py-1 rounded-lg bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.2)] flex items-center gap-1">
-                      <Plus className="h-3 w-3" /> Add item
+                      <Plus className="h-3 w-3" /> {T.addItem}
                     </button>
                   </div>
                   {deliverables.length === 0 ? (
                     <p className="text-xs text-[hsl(var(--muted-foreground))] italic px-3 py-3 rounded-lg bg-[hsl(var(--muted)/0.3)] border border-dashed border-[hsl(var(--border))]">
-                      Optional — itemize the concrete things you'll deliver.
+                      {T.deliverableEmptyHint}
                     </p>
                   ) : (
                     <div className="space-y-2">
@@ -271,8 +460,8 @@ export function NewClientWizard() {
                         <div key={d.id} className="flex gap-2 items-start p-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]">
                           <span className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] w-5 pt-2.5 text-center">{i + 1}</span>
                           <div className="flex-1 space-y-1.5">
-                            <input value={d.title} onChange={(e) => setDeliverables((arr) => arr.map((r) => r.id === d.id ? { ...r, title: e.target.value } : r))} placeholder="Title (e.g. 12 IG posts/month)" className="form-input text-sm" />
-                            <input value={d.detail} onChange={(e) => setDeliverables((arr) => arr.map((r) => r.id === d.id ? { ...r, detail: e.target.value } : r))} placeholder="Detail (optional)" className="form-input text-xs" />
+                            <input value={d.title} onChange={(e) => setDeliverables((arr) => arr.map((r) => r.id === d.id ? { ...r, title: e.target.value } : r))} placeholder={T.deliverableTitlePh} className="form-input text-sm" />
+                            <input value={d.detail} onChange={(e) => setDeliverables((arr) => arr.map((r) => r.id === d.id ? { ...r, detail: e.target.value } : r))} placeholder={T.deliverableDetailPh} className="form-input text-xs" />
                           </div>
                           <button type="button" onClick={() => setDeliverables((arr) => arr.filter((r) => r.id !== d.id))} className="text-[hsl(var(--muted-foreground))] hover:text-red-500 p-1.5">
                             <Trash2 className="h-4 w-4" />
@@ -290,34 +479,102 @@ export function NewClientWizard() {
         {/* STEP 3 — Kickoff items */}
         {step === 3 && (
           <div className="space-y-6">
-            <p className="text-sm text-[hsl(var(--muted-foreground))]">
-              Optional — pre-seed the workspace with a couple of tasks and reminders so the team has something to act on day one.
-            </p>
+            <p className="text-sm text-[hsl(var(--muted-foreground))]">{T.kickoffIntro}</p>
+
+            {/* Weekly reports auto-schedule */}
+            <div className="rounded-2xl border-2 border-[hsl(var(--primary)/0.25)] bg-[hsl(var(--primary)/0.04)] p-4 space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={scheduleEnabled}
+                  onChange={(e) => setScheduleEnabled(e.target.checked)}
+                  disabled={teamMembers.length === 0}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-[hsl(var(--primary))] focus:ring-[hsl(var(--primary))] disabled:opacity-50"
+                />
+                <div className="flex-1">
+                  <p className="font-bold text-sm flex items-center gap-2">
+                    <FileSignature className="h-4 w-4 text-[hsl(var(--primary))]" /> {T.weeklySchedule}
+                  </p>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{T.weeklyScheduleIntro}</p>
+                </div>
+              </label>
+              {teamMembers.length === 0 ? (
+                <p className="text-[11px] italic text-amber-700 dark:text-amber-400 rounded-lg bg-amber-50 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-700/30 px-3 py-2">
+                  {T.noTeamHint}
+                </p>
+              ) : (
+                scheduleEnabled && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1">
+                        {T.assigneeLabel}
+                      </label>
+                      <select
+                        value={scheduleAssignee}
+                        onChange={(e) => setScheduleAssignee(e.target.value)}
+                        className="form-input text-sm w-full"
+                      >
+                        <option value="">{T.pickAssignee}</option>
+                        {teamMembers.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.full_name}{m.job_title ? ` — ${m.job_title}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1">
+                        {T.weeksLabel}
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={52}
+                        value={scheduleWeeks}
+                        onChange={(e) => setScheduleWeeks(Math.max(1, Math.min(52, Number(e.target.value) || 1)))}
+                        className="form-input text-sm w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1">
+                        {T.firstWeekStart}
+                      </label>
+                      <input
+                        type="date"
+                        value={scheduleStart}
+                        onChange={(e) => setScheduleStart(e.target.value)}
+                        className="form-input text-sm w-full"
+                      />
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
 
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-sm flex items-center gap-2">
-                  <CheckSquare className="h-4 w-4 text-[hsl(var(--primary))]" /> Initial tasks
+                  <CheckSquare className="h-4 w-4 text-[hsl(var(--primary))]" /> {T.initialTasks}
                 </h3>
                 <button type="button" onClick={() => setTasks((t) => [...t, { id: uid(), title: '', due_date: '', priority: 'medium' }])} className="text-xs font-semibold px-2 py-1 rounded-lg bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.2)] flex items-center gap-1">
-                  <Plus className="h-3 w-3" /> Add task
+                  <Plus className="h-3 w-3" /> {T.addTask}
                 </button>
               </div>
               {tasks.length === 0 ? (
                 <p className="text-xs text-[hsl(var(--muted-foreground))] italic px-3 py-3 rounded-lg bg-[hsl(var(--muted)/0.3)] border border-dashed border-[hsl(var(--border))]">
-                  No initial tasks — skip if not needed.
+                  {T.tasksEmpty}
                 </p>
               ) : (
                 <div className="space-y-2">
                   {tasks.map((t) => (
                     <div key={t.id} className="grid grid-cols-12 gap-2 items-center p-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]">
-                      <input value={t.title} onChange={(e) => setTasks((arr) => arr.map((r) => r.id === t.id ? { ...r, title: e.target.value } : r))} placeholder="Task title" className="form-input text-sm col-span-6" />
+                      <input value={t.title} onChange={(e) => setTasks((arr) => arr.map((r) => r.id === t.id ? { ...r, title: e.target.value } : r))} placeholder={T.taskTitlePh} className="form-input text-sm col-span-6" />
                       <input type="date" value={t.due_date} onChange={(e) => setTasks((arr) => arr.map((r) => r.id === t.id ? { ...r, due_date: e.target.value } : r))} className="form-input text-sm col-span-3" />
                       <select value={t.priority} onChange={(e) => setTasks((arr) => arr.map((r) => r.id === t.id ? { ...r, priority: e.target.value as any } : r))} className="form-input text-sm col-span-2">
-                        <option value="low">low</option>
-                        <option value="medium">med</option>
-                        <option value="high">high</option>
-                        <option value="urgent">urgent</option>
+                        <option value="low">{T.priLow}</option>
+                        <option value="medium">{T.priMed}</option>
+                        <option value="high">{T.priHigh}</option>
+                        <option value="urgent">{T.priUrgent}</option>
                       </select>
                       <button type="button" onClick={() => setTasks((arr) => arr.filter((r) => r.id !== t.id))} className="text-[hsl(var(--muted-foreground))] hover:text-red-500 col-span-1 flex justify-center">
                         <Trash2 className="h-4 w-4" />
@@ -331,32 +588,32 @@ export function NewClientWizard() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-sm flex items-center gap-2">
-                  <Bell className="h-4 w-4 text-[hsl(var(--primary))]" /> Initial reminders
+                  <Bell className="h-4 w-4 text-[hsl(var(--primary))]" /> {T.initialReminders}
                 </h3>
                 <button type="button" onClick={() => setReminders((t) => [...t, { id: uid(), title: '', due_date: '', type: 'follow_up', priority: 'medium' }])} className="text-xs font-semibold px-2 py-1 rounded-lg bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.2)] flex items-center gap-1">
-                  <Plus className="h-3 w-3" /> Add reminder
+                  <Plus className="h-3 w-3" /> {T.addReminder}
                 </button>
               </div>
               {reminders.length === 0 ? (
                 <p className="text-xs text-[hsl(var(--muted-foreground))] italic px-3 py-3 rounded-lg bg-[hsl(var(--muted)/0.3)] border border-dashed border-[hsl(var(--border))]">
-                  No initial reminders — skip if not needed.
+                  {T.remindersEmpty}
                 </p>
               ) : (
                 <div className="space-y-2">
                   {reminders.map((r) => (
                     <div key={r.id} className="grid grid-cols-12 gap-2 items-center p-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]">
-                      <input value={r.title} onChange={(e) => setReminders((arr) => arr.map((x) => x.id === r.id ? { ...x, title: e.target.value } : x))} placeholder="Reminder title (e.g. Send onboarding doc)" className="form-input text-sm col-span-5" />
+                      <input value={r.title} onChange={(e) => setReminders((arr) => arr.map((x) => x.id === r.id ? { ...x, title: e.target.value } : x))} placeholder={T.reminderTitlePh} className="form-input text-sm col-span-5" />
                       <input type="date" value={r.due_date} onChange={(e) => setReminders((arr) => arr.map((x) => x.id === r.id ? { ...x, due_date: e.target.value } : x))} className="form-input text-sm col-span-3" />
                       <select value={r.type} onChange={(e) => setReminders((arr) => arr.map((x) => x.id === r.id ? { ...x, type: e.target.value } : x))} className="form-input text-sm col-span-2">
-                        <option value="call">call</option>
-                        <option value="meeting">meeting</option>
-                        <option value="follow_up">follow up</option>
-                        <option value="payment">payment</option>
+                        <option value="call">{T.typeCall}</option>
+                        <option value="meeting">{T.typeMeeting}</option>
+                        <option value="follow_up">{T.typeFollowUp}</option>
+                        <option value="payment">{T.typePayment}</option>
                       </select>
                       <select value={r.priority} onChange={(e) => setReminders((arr) => arr.map((x) => x.id === r.id ? { ...x, priority: e.target.value as any } : x))} className="form-input text-sm col-span-1">
-                        <option value="low">low</option>
-                        <option value="medium">med</option>
-                        <option value="high">high</option>
+                        <option value="low">{T.priLow}</option>
+                        <option value="medium">{T.priMed}</option>
+                        <option value="high">{T.priHigh}</option>
                       </select>
                       <button type="button" onClick={() => setReminders((arr) => arr.filter((x) => x.id !== r.id))} className="text-[hsl(var(--muted-foreground))] hover:text-red-500 col-span-1 flex justify-center">
                         <Trash2 className="h-4 w-4" />
@@ -376,10 +633,10 @@ export function NewClientWizard() {
         <div className="pt-6 mt-6 border-t border-[hsl(var(--border))] flex justify-between gap-3">
           {step > 1 ? (
             <button type="button" onClick={() => go((step - 1) as 1 | 2 | 3)} disabled={submitting} className="btn btn-secondary">
-              <ChevronLeft className="h-4 w-4" /> Back
+              <ChevronLeft className="h-4 w-4" /> {T.back}
             </button>
           ) : (
-            <Link href="/clients" className="btn btn-secondary">Cancel</Link>
+            <Link href="/clients" className="btn btn-secondary">{T.cancel}</Link>
           )}
           {step < 3 ? (
             <button
@@ -388,11 +645,11 @@ export function NewClientWizard() {
               disabled={!basicsValid || submitting}
               className="btn btn-primary"
             >
-              Next <ChevronRight className="h-4 w-4" />
+              {T.next} <ChevronRight className="h-4 w-4" />
             </button>
           ) : (
             <button type="button" onClick={submit} disabled={!basicsValid || submitting} className="btn btn-primary">
-              {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating…</> : <>Create client</>}
+              {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> {T.creating}</> : <>{T.createBtn}</>}
             </button>
           )}
         </div>

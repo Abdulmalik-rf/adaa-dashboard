@@ -4,6 +4,44 @@ import { useRef, useState } from 'react'
 import { Upload, File as FileIcon, X, Loader2, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 import { registerClientFile } from '@/app/actions/files'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
+
+const STRINGS = {
+  en: {
+    uploadFile: 'Upload file',
+    title: 'Upload file',
+    clickOrDrop: 'Click or drop a file',
+    hint: 'Up to 100MB · any file type',
+    displayName: 'Display name',
+    displayPh: 'optional — defaults to the file name',
+    category: 'Category',
+    categoryPh: 'Branding · Reports · Contract · …',
+    uploading: 'Uploading…',
+    upload: 'Upload',
+    uploaded: 'Uploaded — refreshing…',
+    cancel: 'Cancel',
+    pickFirst: 'Pick a file first.',
+    tooLarge: 'File is too large (100MB limit).',
+    failed: 'Upload failed: ',
+  },
+  ar: {
+    uploadFile: 'رفع ملف',
+    title: 'رفع ملف',
+    clickOrDrop: 'انقر أو أفلت ملفاً',
+    hint: 'حتى ١٠٠ ميجابايت · أي نوع ملف',
+    displayName: 'الاسم المعروض',
+    displayPh: 'اختياري — يستخدم اسم الملف افتراضياً',
+    category: 'التصنيف',
+    categoryPh: 'هوية بصرية · تقارير · عقد · …',
+    uploading: 'جاري الرفع…',
+    upload: 'رفع',
+    uploaded: 'تم الرفع — جاري التحديث…',
+    cancel: 'إلغاء',
+    pickFirst: 'اختر ملفاً أولاً.',
+    tooLarge: 'الملف كبير جداً (الحد الأقصى ١٠٠ ميجابايت).',
+    failed: 'فشل الرفع: ',
+  },
+} as const
 
 // Single-client variant of the FilesClient upload flow. Same pipeline
 // (browser → storage, then a tiny metadata insert through the server
@@ -51,6 +89,8 @@ export function UploadFileInline({
   clientId: string
   existingCategories: string[]
 }) {
+  const { language, dir } = useLanguage()
+  const T = STRINGS[language === 'ar' ? 'ar' : 'en']
   const [open, setOpen] = useState(false)
   const [picked, setPicked] = useState<File | null>(null)
   const [name, setName] = useState('')
@@ -80,8 +120,8 @@ export function UploadFileInline({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
-    if (!picked) { setError('Pick a file first.'); return }
-    if (picked.size > 100 * 1024 * 1024) { setError('File is too large (100MB limit).'); return }
+    if (!picked) { setError(T.pickFirst); return }
+    if (picked.size > 100 * 1024 * 1024) { setError(T.tooLarge); return }
 
     setUploading(true)
     try {
@@ -94,7 +134,7 @@ export function UploadFileInline({
           contentType: picked.type || 'application/octet-stream',
           upsert: false,
         })
-      if (upErr) { setError(`Upload failed: ${upErr.message}`); return }
+      if (upErr) { setError(T.failed + upErr.message); return }
 
       const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path)
       const storage_path = pub?.publicUrl ?? path
@@ -130,17 +170,17 @@ export function UploadFileInline({
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="btn btn-primary btn-sm">
-        <Upload className="h-4 w-4" /> Upload file
+        <Upload className="h-4 w-4" /> {T.uploadFile}
       </button>
     )
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" dir={dir}>
       <div className="bg-[hsl(var(--card))] w-full max-w-md rounded-2xl shadow-2xl border border-[hsl(var(--border))] overflow-hidden">
         <div className="flex items-center justify-between p-5 border-b border-[hsl(var(--border))]">
           <h2 className="text-lg font-bold flex items-center gap-2">
-            <Upload className="h-4 w-4 text-[hsl(var(--primary))]" /> Upload file
+            <Upload className="h-4 w-4 text-[hsl(var(--primary))]" /> {T.title}
           </h2>
           <button onClick={reset} className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]" disabled={uploading}>
             <X className="h-5 w-5" />
@@ -174,8 +214,8 @@ export function UploadFileInline({
                 <div className="h-12 w-12 bg-[hsl(var(--muted))] rounded-full flex items-center justify-center mb-2">
                   <Upload className="h-6 w-6 text-[hsl(var(--primary))]" />
                 </div>
-                <p className="font-semibold text-sm">Click or drop a file</p>
-                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1">Up to 100MB · any file type</p>
+                <p className="font-semibold text-sm">{T.clickOrDrop}</p>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1">{T.hint}</p>
               </div>
             )}
             <input
@@ -189,11 +229,11 @@ export function UploadFileInline({
 
           {/* Display name */}
           <div className="space-y-1">
-            <label className="text-[10px] uppercase tracking-wider font-bold text-[hsl(var(--muted-foreground))]">Display name</label>
+            <label className="text-[10px] uppercase tracking-wider font-bold text-[hsl(var(--muted-foreground))]">{T.displayName}</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={picked?.name ?? 'optional — defaults to the file name'}
+              placeholder={picked?.name ?? T.displayPh}
               className="form-input"
               disabled={uploading}
             />
@@ -201,12 +241,12 @@ export function UploadFileInline({
 
           {/* Category */}
           <div className="space-y-1">
-            <label className="text-[10px] uppercase tracking-wider font-bold text-[hsl(var(--muted-foreground))]">Category</label>
+            <label className="text-[10px] uppercase tracking-wider font-bold text-[hsl(var(--muted-foreground))]">{T.category}</label>
             <input
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               list="upload-file-cats"
-              placeholder="Branding · Reports · Contract · …"
+              placeholder={T.categoryPh}
               className="form-input"
               maxLength={80}
               disabled={uploading}
@@ -224,7 +264,7 @@ export function UploadFileInline({
           )}
           {done && (
             <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-3 py-2 text-xs text-emerald-600 flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4" /> Uploaded — refreshing…
+              <CheckCircle2 className="h-4 w-4" /> {T.uploaded}
             </div>
           )}
 
@@ -235,14 +275,14 @@ export function UploadFileInline({
               disabled={uploading}
               className="btn btn-secondary flex-1"
             >
-              Cancel
+              {T.cancel}
             </button>
             <button
               type="submit"
               disabled={uploading || !picked || done}
               className="btn btn-primary flex-1"
             >
-              {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : 'Upload'}
+              {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> {T.uploading}</> : T.upload}
             </button>
           </div>
         </form>

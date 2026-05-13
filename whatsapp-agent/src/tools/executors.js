@@ -692,6 +692,22 @@ async function sendWhatsappMessage(input) {
 // Resend (https://resend.com) — single fetch, no SDK. Falls back to a
 // log-only behaviour if RESEND_API_KEY isn't set so the agent doesn't
 // hard-fail in environments where email isn't configured yet.
+//
+// FROM resolution: tries the configured RESEND_FROM (e.g. the agency's
+// own info@domain). If Resend rejects with 403 because that domain
+// isn't verified yet, automatically retries from
+// RESEND_FALLBACK_FROM (defaults to onboarding@resend.dev, which is
+// always valid). That way emails keep going through during the
+// DNS-verification window — once the domain is verified, the same code
+// silently starts using the branded sender.
+async function postEmailToResend(apiKey, body) {
+  return fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify(body),
+  })
+}
+
 async function sendEmail(input) {
   const to = String(input.to ?? '').trim()
   const subject = String(input.subject ?? '').trim()
@@ -701,7 +717,8 @@ async function sendEmail(input) {
   if (!text) throw new Error('text is required')
 
   const apiKey = process.env.RESEND_API_KEY
-  const from = process.env.RESEND_FROM ?? 'Emergize <onboarding@resend.dev>'
+  const primaryFrom = process.env.RESEND_FROM ?? 'Emergize <info@emergize-sa.com>'
+  const fallbackFrom = process.env.RESEND_FALLBACK_FROM ?? 'Emergize <onboarding@resend.dev>'
 
   if (!apiKey) {
     console.warn('[email] RESEND_API_KEY not set — printing instead of sending:')
@@ -712,25 +729,47 @@ async function sendEmail(input) {
     }
   }
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({ from, to: [to], subject, text }),
-  })
+  let res = await postEmailToResend(apiKey, { from: primaryFrom, to: [to], subject, text })
+  let fromUsed = primaryFrom
+  let domainFallback = false
+
+  // Auto-fallback when the primary sender's domain isn't verified yet.
+  // Resend returns 403 with name='validation_error' and "domain is not
+  // verified" in the message; we cover both that wording and 422.
+  if (!res.ok && primaryFrom !== fallbackFrom) {
+    const status = res.status
+    const peek = await res.clone().text()
+    const looksLikeDomainErr =
+      (status === 403 || status === 422) &&
+      /domain (is )?not verified|verify your domain/i.test(peek)
+    if (looksLikeDomainErr) {
+      console.warn(`[email] primary sender "${primaryFrom}" not verified — retrying via fallback "${fallbackFrom}"`)
+      res = await postEmailToResend(apiKey, { from: fallbackFrom, to: [to], subject, text })
+      fromUsed = fallbackFrom
+      domainFallback = true
+    }
+  }
+
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`Resend ${res.status}: ${body.slice(0, 200)}`)
   }
+
   await markClientContacted(input.client_id, 'email', `Email "${subject}": ${text}`)
-  console.log(`[outbound] emailed ${to}: ${subject}`)
+  console.log(`[outbound] emailed ${to}: ${subject} (from=${fromUsed}${domainFallback ? ' [fallback]' : ''})`)
   return {
     sent: true,
     to,
     subject,
+    from: fromUsed,
     client_marked_contacted: !!input.client_id,
+    ...(domainFallback
+      ? {
+          warning:
+            `Sent from ${fromUsed} because the primary domain on ${primaryFrom} isn't verified in Resend yet. ` +
+            `Add the domain at https://resend.com/domains and the next email will use the branded sender automatically.`,
+        }
+      : {}),
   }
 }
 

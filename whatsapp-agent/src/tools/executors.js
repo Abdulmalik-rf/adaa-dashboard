@@ -720,7 +720,7 @@ const EMAIL_SIGNATURE = {
     process.env.EMAIL_LOGO_URL ||
     'https://ddiaetxjjsobwkrapxnt.supabase.co/storage/v1/object/public/agency-files/brand/emergize-logo.png',
   instagramIcon:
-    'https://ddiaetxjjsobwkrapxnt.supabase.co/storage/v1/object/public/agency-files/brand/instagram-icon.png',
+    'https://ddiaetxjjsobwkrapxnt.supabase.co/storage/v1/object/public/agency-files/brand/instagram-icon-v3.png',
   tiktokIcon:
     'https://ddiaetxjjsobwkrapxnt.supabase.co/storage/v1/object/public/agency-files/brand/tiktok-icon.png',
   websiteUrl: process.env.EMAIL_WEBSITE_URL || 'https://emergize-sa.com',

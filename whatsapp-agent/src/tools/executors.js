@@ -719,10 +719,16 @@ const EMAIL_SIGNATURE = {
   logoUrl:
     process.env.EMAIL_LOGO_URL ||
     'https://ddiaetxjjsobwkrapxnt.supabase.co/storage/v1/object/public/agency-files/brand/emergize-logo.png',
+  instagramIcon:
+    'https://ddiaetxjjsobwkrapxnt.supabase.co/storage/v1/object/public/agency-files/brand/instagram-icon.png',
+  tiktokIcon:
+    'https://ddiaetxjjsobwkrapxnt.supabase.co/storage/v1/object/public/agency-files/brand/tiktok-icon.png',
   websiteUrl: process.env.EMAIL_WEBSITE_URL || 'https://emergize-sa.com',
   instagramUrl: 'https://www.instagram.com/emergize_sa',
   tiktokUrl: 'https://www.tiktok.com/@emergize1',
   contactEmail: 'info@emergize-sa.com',
+  contactPhone: '+966 57 760 2467',
+  contactPhoneIntl: '+966577602467', // for tel: links
   tagline: 'Emerge to Dominate',
 }
 
@@ -749,15 +755,25 @@ function buildSignatureHtml(bodyText) {
         <td style="vertical-align:middle;font-family:Inter,Segoe UI,Arial,sans-serif;">
           <div style="font-weight:700;font-size:13px;color:#0a0a0a;letter-spacing:0.5px;text-transform:uppercase;">EMERGIZE</div>
           <div style="font-size:11.5px;color:#9DCD3D;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:2px;">${EMAIL_SIGNATURE.tagline}</div>
-          <div style="margin-top:8px;font-size:12.5px;color:#444;">
+          <div style="margin-top:8px;font-size:12.5px;color:#444;line-height:1.7;">
+            <a href="tel:${EMAIL_SIGNATURE.contactPhoneIntl}" style="color:#444;text-decoration:none;">${EMAIL_SIGNATURE.contactPhone}</a><br>
             <a href="mailto:${EMAIL_SIGNATURE.contactEmail}" style="color:#444;text-decoration:none;">${EMAIL_SIGNATURE.contactEmail}</a><br>
             <a href="${EMAIL_SIGNATURE.websiteUrl}" style="color:#444;text-decoration:none;">${EMAIL_SIGNATURE.websiteUrl.replace(/^https?:\/\//, '')}</a>
           </div>
-          <div style="margin-top:8px;font-size:12px;">
-            <a href="${EMAIL_SIGNATURE.instagramUrl}" style="color:#5B4BFF;text-decoration:none;font-weight:600;">Instagram</a>
-            <span style="color:#cccccc;margin:0 6px;">·</span>
-            <a href="${EMAIL_SIGNATURE.tiktokUrl}" style="color:#5B4BFF;text-decoration:none;font-weight:600;">TikTok</a>
-          </div>
+          <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:10px;">
+            <tr>
+              <td style="padding-right:10px;">
+                <a href="${EMAIL_SIGNATURE.instagramUrl}" style="text-decoration:none;display:inline-block;">
+                  <img src="${EMAIL_SIGNATURE.instagramIcon}" alt="Instagram" width="28" height="28" style="display:block;width:28px;height:28px;border:0;" />
+                </a>
+              </td>
+              <td>
+                <a href="${EMAIL_SIGNATURE.tiktokUrl}" style="text-decoration:none;display:inline-block;">
+                  <img src="${EMAIL_SIGNATURE.tiktokIcon}" alt="TikTok" width="28" height="28" style="display:block;width:28px;height:28px;border:0;" />
+                </a>
+              </td>
+            </tr>
+          </table>
         </td>
       </tr>
     </table>
@@ -775,6 +791,7 @@ function buildSignaturePlainText(bodyText) {
     '',
     '—',
     'EMERGIZE · Emerge to Dominate',
+    EMAIL_SIGNATURE.contactPhone,
     `${EMAIL_SIGNATURE.contactEmail}  ·  ${EMAIL_SIGNATURE.websiteUrl.replace(/^https?:\/\//, '')}`,
     `Instagram: ${EMAIL_SIGNATURE.instagramUrl}`,
     `TikTok:    ${EMAIL_SIGNATURE.tiktokUrl}`,

@@ -1927,6 +1927,140 @@ const powerTools = [
 ]
 
 // =============================================================================
+// DEVELOPER-MODE TOOLS — file system + shell access on the user's laptop
+// =============================================================================
+// These let the agent behave like a coding assistant: open files, edit
+// them, run builds/tests, push commits. The project root is the
+// dashboard repo (the directory that contains src/, whatsapp-agent/,
+// package.json, etc.). Paths can be relative to that root or absolute.
+
+const devTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'project_root',
+      description:
+        'Get the absolute path of the dashboard project root + the host OS platform. Call this once at the start of a developer-mode turn so you know where you are and can craft correct relative paths. No arguments.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_file',
+      description:
+        'Read a text file from the laptop. Paths can be relative to the project root or absolute. Returns the content with 1-based line numbers prefixed. Use `offset` + `limit` to page through large files. ALWAYS read a file before editing it so old_string matches exactly.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path. Relative to project root if not absolute.' },
+          offset: { type: 'integer', description: 'Optional. 0-based line to start at.' },
+          limit: { type: 'integer', description: 'Optional. Max lines to read (default 2000).' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_file',
+      description:
+        'WRITE a file (creates it or overwrites it whole). DESTRUCTIVE for existing files — for surgical changes use edit_file instead. Use write_file only for brand-new files or when you genuinely want to replace the whole content. Creates parent directories as needed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          content: { type: 'string', description: 'Full file content.' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_file',
+      description:
+        'SURGICAL edit — replace exactly `old_string` with `new_string`. Requires old_string to be unique in the file (extend the snippet with surrounding context if needed) unless replace_all=true. Reads must match exactly including whitespace; read the file first so you know the precise indentation. Errors loudly if old_string is not found or is non-unique without replace_all.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          old_string: { type: 'string' },
+          new_string: { type: 'string' },
+          replace_all: { type: 'boolean', description: 'Optional. Replace every occurrence. Default false.' },
+        },
+        required: ['path', 'old_string', 'new_string'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_dir',
+      description: 'List a directory\'s entries. Directories first, then files, both alphabetical.',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string', description: 'Defaults to project root.' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'glob_files',
+      description:
+        'Recursively find files by glob pattern. Skips .git, node_modules, .next, dist, .turbo. ** matches any segments, * matches one segment, ? matches one char.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'e.g. "src/**/*.tsx", "*.md".' },
+          cwd: { type: 'string', description: 'Directory to search in. Defaults to project root.' },
+        },
+        required: ['pattern'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'grep_files',
+      description:
+        'Search file contents for a regex pattern. Uses ripgrep when available, falls back to a JS scanner. Returns up to 200 file:line:content matches.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Regex pattern.' },
+          path: { type: 'string', description: 'Directory to search. Defaults to project root.' },
+          glob: { type: 'string', description: 'Optional file-name glob filter, e.g. "*.tsx".' },
+          case_insensitive: { type: 'boolean' },
+          max: { type: 'integer' },
+        },
+        required: ['pattern'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_shell',
+      description:
+        'Execute a shell command on the user\'s laptop and return stdout/stderr. PowerShell on Windows, /bin/sh on POSIX. Default cwd is the project root. Default timeout 60s; use a longer timeout_ms for builds. Use this for git, npm, node, tsc, curl — anything that isn\'t covered by a dedicated tool. DESTRUCTIVE for anything that mutates state (rm, git push, npm publish, db scripts) — describe what you\'re about to run and wait for confirmation on destructive commands.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string' },
+          cwd: { type: 'string' },
+          timeout_ms: { type: 'integer' },
+        },
+        required: ['command'],
+      },
+    },
+  },
+]
+
+// =============================================================================
 
 export const tools = [
   ...memoryTools,
@@ -1948,4 +2082,5 @@ export const tools = [
   ...weeklyReportTools,
   ...settingsTools,
   ...powerTools,
+  ...devTools,
 ]

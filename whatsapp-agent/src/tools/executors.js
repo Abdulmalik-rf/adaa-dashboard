@@ -4,6 +4,20 @@ import { rememberFact, forgetFact } from '../memory-store.js'
 import { generateQuotationPdf } from '../quotation-pdf.js'
 import { getSock, isReady } from '../sock-holder.js'
 import { getRequest } from '../context.js'
+import {
+  devReadFile,
+  devWriteFile,
+  devEditFile,
+  devListDir,
+  devGlob,
+  devGrep,
+  devRunShell,
+  devProjectRoot,
+  PROJECT_ROOT,
+} from './dev-tools.js'
+import fs from 'node:fs/promises'
+import nodePath from 'node:path'
+import nodeChildProcess from 'node:child_process'
 
 // =============================================================================
 // HELPERS
@@ -2281,6 +2295,15 @@ const registry = {
   db_query: dbQuery,
   db_migrate: dbMigrate,
   run_code: runCode,
+  // developer mode — file/shell access on the user's laptop
+  read_file: devReadFile,
+  write_file: devWriteFile,
+  edit_file: devEditFile,
+  list_dir: devListDir,
+  glob_files: devGlob,
+  grep_files: devGrep,
+  run_shell: devRunShell,
+  project_root: devProjectRoot,
 }
 
 // =============================================================================
@@ -2290,6 +2313,9 @@ const registry = {
 const POWER_TOOL_NAMES = new Set([
   'db_describe', 'db_select', 'db_insert', 'db_update', 'db_delete',
   'db_count', 'db_query', 'db_migrate', 'run_code',
+  // dev-mode writes are also audited so the user can trace destructive
+  // ops the agent ran on their laptop.
+  'write_file', 'edit_file', 'run_shell',
 ])
 
 // Audit every power-tool call so there's a paper trail. Best-effort —
@@ -2460,6 +2486,15 @@ async function runCode(input) {
     clearInterval,
     URL,
     URLSearchParams,
+    // Developer-mode globals so the agent can do file/shell work inline
+    // when no specific tool fits. Same access the user has — no sandbox
+    // restriction beyond what node:vm gives us (which is just isolated
+    // globals, not OS-level isolation).
+    fs,
+    path: nodePath,
+    child_process: nodeChildProcess,
+    process: { cwd: () => PROJECT_ROOT, platform: process.platform, env: process.env },
+    PROJECT_ROOT,
   })
 
   // Wrap the agent's code in an async IIFE so it can await freely and

@@ -708,6 +708,81 @@ async function postEmailToResend(apiKey, body) {
   })
 }
 
+// =============================================================================
+// Email signature — appended to every outbound email so the recipient
+// always sees the Emergize brand block (logo + socials + contact) and
+// understands the message came from the AI agent. Logo lives in the
+// public agency-files bucket (uploaded once, stable URL forever).
+// =============================================================================
+
+const EMAIL_SIGNATURE = {
+  logoUrl:
+    process.env.EMAIL_LOGO_URL ||
+    'https://ddiaetxjjsobwkrapxnt.supabase.co/storage/v1/object/public/agency-files/brand/emergize-logo.png',
+  websiteUrl: process.env.EMAIL_WEBSITE_URL || 'https://emergize-sa.com',
+  instagramUrl: 'https://www.instagram.com/emergize_sa',
+  tiktokUrl: 'https://www.tiktok.com/@emergize1',
+  contactEmail: 'info@emergize-sa.com',
+  tagline: 'Emerge to Dominate',
+}
+
+function buildSignatureHtml(bodyText) {
+  // The signature block uses inline styles (Gmail/Outlook strip <style>
+  // tags). Logo is set to a fixed width so it stays sane across mail
+  // clients. Social links are text-with-icons rather than full Instagram
+  // embeds so Outlook doesn't choke on them.
+  const escape = (s) => String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]))
+  const bodyHtml = escape(bodyText).replace(/\n/g, '<br>')
+
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#ffffff;font-family:Inter,Segoe UI,Arial,sans-serif;color:#1a1a1a;line-height:1.55;">
+<div style="max-width:600px;margin:0 auto;padding:24px;">
+  <div style="font-size:14.5px;color:#1a1a1a;">${bodyHtml}</div>
+
+  <div style="margin-top:32px;padding-top:20px;border-top:2px solid #9DCD3D;">
+    <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+      <tr>
+        <td style="padding-right:18px;vertical-align:middle;">
+          <img src="${EMAIL_SIGNATURE.logoUrl}" alt="Emergize" width="120" style="display:block;width:120px;height:auto;border:0;" />
+        </td>
+        <td style="vertical-align:middle;font-family:Inter,Segoe UI,Arial,sans-serif;">
+          <div style="font-weight:700;font-size:13px;color:#0a0a0a;letter-spacing:0.5px;text-transform:uppercase;">EMERGIZE</div>
+          <div style="font-size:11.5px;color:#9DCD3D;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:2px;">${EMAIL_SIGNATURE.tagline}</div>
+          <div style="margin-top:8px;font-size:12.5px;color:#444;">
+            <a href="mailto:${EMAIL_SIGNATURE.contactEmail}" style="color:#444;text-decoration:none;">${EMAIL_SIGNATURE.contactEmail}</a><br>
+            <a href="${EMAIL_SIGNATURE.websiteUrl}" style="color:#444;text-decoration:none;">${EMAIL_SIGNATURE.websiteUrl.replace(/^https?:\/\//, '')}</a>
+          </div>
+          <div style="margin-top:8px;font-size:12px;">
+            <a href="${EMAIL_SIGNATURE.instagramUrl}" style="color:#5B4BFF;text-decoration:none;font-weight:600;">Instagram</a>
+            <span style="color:#cccccc;margin:0 6px;">·</span>
+            <a href="${EMAIL_SIGNATURE.tiktokUrl}" style="color:#5B4BFF;text-decoration:none;font-weight:600;">TikTok</a>
+          </div>
+        </td>
+      </tr>
+    </table>
+    <div style="margin-top:14px;font-size:10.5px;color:#888;font-style:italic;">
+      Sent on behalf of Emergize by the AI assistant. Reply to this email and a team member will follow up.
+    </div>
+  </div>
+</div>
+</body></html>`
+}
+
+function buildSignaturePlainText(bodyText) {
+  return [
+    bodyText,
+    '',
+    '—',
+    'EMERGIZE · Emerge to Dominate',
+    `${EMAIL_SIGNATURE.contactEmail}  ·  ${EMAIL_SIGNATURE.websiteUrl.replace(/^https?:\/\//, '')}`,
+    `Instagram: ${EMAIL_SIGNATURE.instagramUrl}`,
+    `TikTok:    ${EMAIL_SIGNATURE.tiktokUrl}`,
+    '',
+    '(Sent on behalf of Emergize by the AI assistant. Reply and a team member will follow up.)',
+  ].join('\n')
+}
+
 // Resolve { url | file_id, filename? } → { filename, content (base64) }.
 // Used by sendEmail and send_whatsapp_file_url to share the same fetch /
 // client_files-resolution code path.
@@ -747,8 +822,11 @@ async function sendEmail(input) {
   if (!text) throw new Error('text is required')
 
   const apiKey = process.env.RESEND_API_KEY
-  const primaryFrom = process.env.RESEND_FROM ?? 'Emergize <info@emergize-sa.com>'
-  const fallbackFrom = process.env.RESEND_FALLBACK_FROM ?? 'Emergize <onboarding@resend.dev>'
+  // Sender name says "Emergize Agent" so the recipient sees it's an
+  // automated message, not a human at Emergize. The footer of the
+  // signature reinforces this in plain text.
+  const primaryFrom = process.env.RESEND_FROM ?? 'Emergize Agent <info@emergize-sa.com>'
+  const fallbackFrom = process.env.RESEND_FALLBACK_FROM ?? 'Emergize Agent <onboarding@resend.dev>'
 
   if (!apiKey) {
     console.warn('[email] RESEND_API_KEY not set — printing instead of sending:')
@@ -773,7 +851,14 @@ async function sendEmail(input) {
     attachments.push({ filename: resolved.filename, content: resolved.content })
   }
 
-  const bodyShared = { from: primaryFrom, to: [to], subject, text }
+  // Wrap the user-supplied body in the branded signature. We send BOTH
+  // html (rich block with logo + social links) AND text (plaintext
+  // fallback for old clients / spam filters). Resend prefers html when
+  // both are present.
+  const html = buildSignatureHtml(text)
+  const textWithSig = buildSignaturePlainText(text)
+
+  const bodyShared = { from: primaryFrom, to: [to], subject, html, text: textWithSig }
   if (attachments.length) bodyShared.attachments = attachments
 
   let res = await postEmailToResend(apiKey, bodyShared)

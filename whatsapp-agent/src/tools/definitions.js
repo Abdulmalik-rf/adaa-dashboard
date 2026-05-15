@@ -1780,6 +1780,178 @@ const accountingTools = [
 ]
 
 // =============================================================================
+// OVERDUE NAGS — scheduler creates drafts; admin replies "send"/"skip" on
+// WhatsApp to act. These tools let the LLM look up the pending drafts and
+// fire / skip / reject them.
+// =============================================================================
+
+const nagsTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'find_pending_nags',
+      description:
+        'List pending overdue-invoice nag drafts the scheduler created but admin hasn\'t acted on yet. Use when admin replies "send" or "skip" without specifying which invoice — show them the list so they can disambiguate, or auto-pick the most recent if only one is pending.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', description: 'Default 5.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_nag',
+      description:
+        'Actually send the nag draft to the client. The "channel" arg picks how: whatsapp routes via the agent\'s sock (uses the client\'s whatsapp/phone field), email uses Resend. Flips invoice_nag_log status to "sent" and stamps sent_at. Pass nag_id (UUID) if known, otherwise invoice_number + stage so the tool can look it up.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nag_id: { type: 'string', description: 'UUID of the invoice_nag_log row.' },
+          invoice_number: { type: 'string', description: 'Alternative: invoice number (e.g. INV-2026-001) — combined with stage to look up.' },
+          stage: { type: 'string', enum: ['gentle_7d', 'firm_14d', 'escalation_30d'] },
+          channel: { type: 'string', enum: ['whatsapp', 'email'] },
+          edited_body: { type: 'string', description: 'Optional. If admin asked to tweak the wording before sending, pass the new body here. Otherwise the stored draft is used.' },
+        },
+        required: ['channel'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'skip_nag',
+      description:
+        'Mark a nag draft as skipped (admin doesn\'t want to send it). Same identification rules as send_nag — nag_id OR invoice_number+stage.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nag_id: { type: 'string' },
+          invoice_number: { type: 'string' },
+          stage: { type: 'string', enum: ['gentle_7d', 'firm_14d', 'escalation_30d'] },
+        },
+      },
+    },
+  },
+]
+
+// =============================================================================
+// BILLS / EXPENSES — vendor receipt PDF or expense photo → AI extracts →
+// draft bill → admin approves → push to Qoyod. The accounts-payable
+// mirror of accountingTools. Same admin/draft/approve/push lifecycle.
+// =============================================================================
+
+const billsTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'create_draft_bill',
+      description:
+        "Create a DRAFT expense bill in the dashboard's accounting section. Use when the admin forwards a vendor receipt (restaurant, fuel station, software subscription, parking, etc.) OR a vendor invoice PDF and asks you to record it. Workflow: (1) read the [uploaded_document: …] extracted text or [uploaded_image: …] OCR to pull vendor_name, total, vat, date; (2) decide is_simple — a one-line restaurant receipt = true, an itemized vendor invoice with multiple SKUs = false; (3) call this tool. Returns the new bill id + bill_reference (BILL-YYYY-NNN). Admin reviews/edits at /accounting/bills/<id> and clicks Approve, then Push to send it to Qoyod as a /bill (itemized) or /simple_bill (single-line). ONE call per receipt.",
+      parameters: {
+        type: 'object',
+        properties: {
+          vendor_name: { type: 'string', description: 'Vendor / supplier / merchant name exactly as it should appear on the bill. Required.' },
+          vendor_vat: { type: 'string', description: "Vendor's VAT number if visible on the receipt." },
+          vendor_cr: { type: 'string', description: "Vendor's Commercial Registration number if visible." },
+          vendor_address: { type: 'string', description: 'Vendor address if visible.' },
+          receipt_url: { type: 'string', description: 'Public URL of the receipt PDF or photo (from the [uploaded_document: …] / [uploaded_image: …] tag).' },
+          bill_number: { type: 'string', description: "Vendor's own invoice/receipt number printed on the document." },
+          issue_date: { type: 'string', description: 'ISO date the receipt was issued. Defaults to today.' },
+          due_date: { type: 'string', description: 'ISO date payment is due, when stated on a vendor invoice.' },
+          payment_date: { type: 'string', description: 'ISO date payment cleared, if already paid (e.g. card receipt). Setting this triggers a /bill_payments record on push.' },
+          payment_method: { type: 'string', description: "e.g. 'bank_transfer', 'cash', 'card', 'mada', 'stc_pay', 'cheque'." },
+          payment_reference: { type: 'string', description: 'Transaction id / reference from the receipt.' },
+          category: { type: 'string', description: "Expense category — 'meals', 'fuel', 'software', 'subscriptions', 'office_supplies', 'rent', 'utilities', 'marketing', 'professional_fees', 'salaries', 'training', 'travel', 'cloud_hosting', 'misc'. If omitted, the tool checks if this vendor has a learned mapping and uses that." },
+          is_simple: { type: 'boolean', description: "Use true for simple single-line cash/card receipts (one-pizza-place / one-petrol-stop). Use false for itemized vendor invoices with multiple SKUs and a VAT breakdown. Default false." },
+          currency: { type: 'string', description: "ISO code. Default 'SAR'." },
+          vat_rate: { type: 'number', description: 'VAT rate as a percentage. KSA standard is 15.' },
+          line_items: {
+            type: 'array',
+            description: 'Optional. Bill line items. For simple bills leave empty (a single placeholder line is generated). For itemized vendor invoices pass each line.',
+            items: {
+              type: 'object',
+              properties: {
+                description: { type: 'string' },
+                qty: { type: 'number' },
+                unit_price: { type: 'number' },
+                vat_rate: { type: 'number' },
+              },
+              required: ['description'],
+            },
+          },
+          subtotal: { type: 'number', description: 'Pre-VAT total. Computed automatically if line_items are passed; supply when only a final total is on the receipt.' },
+          total: { type: 'number', description: 'Grand total (subtotal + VAT). For simple cash receipts this is often the only figure printed.' },
+          notes: { type: 'string', description: 'Free-form notes. Useful for capturing what the receipt was for in plain English/Arabic.' },
+        },
+        required: ['vendor_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_bills',
+      description:
+        'List or search accounting bills (expenses / vendor invoices). Use to answer "show me the latest expense", "any draft bills pending?", "how much did we spend on software last month?", "did we pay Salla yet?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', description: "Filter by status: 'draft' / 'approved' / 'pushed' / 'paid' / 'failed' / 'void'." },
+          category: { type: 'string', description: 'Filter by expense category.' },
+          vendor: { type: 'string', description: 'Fuzzy match against vendor_name.' },
+          q: { type: 'string', description: 'Fuzzy match against vendor_name / bill_reference / bill_number.' },
+          from_date: { type: 'string', description: 'Only bills issued on or after this ISO date.' },
+          to_date: { type: 'string', description: 'Only bills issued on or before this ISO date.' },
+          limit: { type: 'integer', description: 'Default 20.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'approve_bill',
+      description:
+        'Approve a draft bill (flips status draft → approved) AND records the vendor → category mapping for future auto-suggestion. Admin-only. Does NOT push to Qoyod yet — that\'s a separate step. Use when admin says "approve BILL-2026-007" or "yes, looks good — approve it".',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Bill id (UUID) or bill_reference (e.g. BILL-2026-007).' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'push_bill',
+      description:
+        'Push an APPROVED bill to Qoyod. Uses /bills (itemized) or /simple_bills depending on is_simple. If payment_date is set, also records a /bill_payments entry and flips status to paid. Will fail with a clear error if Qoyod API key is missing — surface verbatim. Admin-only.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Bill id or bill_reference.' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'suggest_bill_category',
+      description:
+        'Look up the previously-learned expense category for a vendor. Use BEFORE create_draft_bill so the category can be pre-filled. Returns { category, hit_count } if known, or null if this vendor is new.',
+      parameters: {
+        type: 'object',
+        properties: { vendor_name: { type: 'string' } },
+        required: ['vendor_name'],
+      },
+    },
+  },
+]
+
+// =============================================================================
 // AGENCY SETTINGS (one-row config table — agency name, support email, etc.)
 // =============================================================================
 
@@ -2177,6 +2349,8 @@ export const tools = [
   ...weeklyReportTools,
   ...settingsTools,
   ...accountingTools,
+  ...nagsTools,
+  ...billsTools,
   ...powerTools,
   ...devTools,
 ]

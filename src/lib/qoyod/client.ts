@@ -140,6 +140,81 @@ export async function createInvoicePayment(apiKey: string, payload: QoyodPayment
   return request<{ invoice_payment: { id: number } }>(apiKey, 'POST', '/invoice_payments', payload)
 }
 
+// ---- VENDORS (accounts-payable counterparties)
+export type QoyodVendorPayload = {
+  vendor: {
+    name: string
+    email?: string
+    phone?: string
+    address?: string
+    vat_number?: string
+    cr_number?: string
+  }
+}
+export async function createVendor(apiKey: string, payload: QoyodVendorPayload) {
+  return request<{ vendor: { id: number; name: string } }>(apiKey, 'POST', '/vendors', payload)
+}
+export async function listVendors(apiKey: string, search?: string) {
+  const qp = search ? `?q[name_cont]=${encodeURIComponent(search)}` : ''
+  return request<{ vendors: Array<{ id: number; name: string; vat_number?: string }> }>(apiKey, 'GET', `/vendors${qp}`)
+}
+
+// ---- BILLS (the AP side — full vendor invoices with VAT detail)
+export type QoyodBillLine = {
+  product_id?: number
+  description?: string
+  quantity: number
+  unit_price: number
+  tax_percent?: number
+  account_id?: number   // expense account this line posts against
+}
+export type QoyodBillPayload = {
+  bill: {
+    vendor_id: number
+    reference?: string
+    description?: string
+    issue_date: string
+    due_date?: string
+    status?: 'Draft' | 'Approved'
+    inventory_id?: number
+    line_items: QoyodBillLine[]
+  }
+}
+export async function createBill(apiKey: string, payload: QoyodBillPayload) {
+  return request<{ bill: { id: number; reference?: string } }>(apiKey, 'POST', '/bills', payload)
+}
+
+// ---- SIMPLE BILLS (no VAT line-item detail — restaurant receipts etc.)
+export type QoyodSimpleBillPayload = {
+  simple_bill: {
+    vendor_id: number
+    reference?: string
+    description?: string
+    issue_date: string
+    due_date?: string
+    amount: number
+    expense_account_id: number
+    tax_percent?: number
+  }
+}
+export async function createSimpleBill(apiKey: string, payload: QoyodSimpleBillPayload) {
+  return request<{ simple_bill: { id: number } }>(apiKey, 'POST', '/simple_bills', payload)
+}
+
+// ---- BILL PAYMENTS
+export type QoyodBillPaymentPayload = {
+  bill_payment: {
+    bill_id: number
+    account_id: number
+    date: string
+    amount: number | string
+    reference?: string
+  }
+}
+export async function createBillPayment(apiKey: string, payload: QoyodBillPaymentPayload) {
+  return request<{ bill_payment: { id: number } }>(apiKey, 'POST', '/bill_payments', payload)
+}
+
 // ---- Connectivity check used by the Settings page "Test connection" button.
 // Returns the account list as a side-effect-free probe — a 200 means the
 // key is valid AND scoped to the right org. A 401/403 means the key is

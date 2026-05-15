@@ -179,6 +179,11 @@ export const dictionaries = {
     leadsNav: "Leads",
     hrNav: "HR",
     accountingNav: "Accounting",
+    invoicesNav: "Invoices",
+    billsNav: "Bills",
+    vatReturnNav: "VAT Return",
+    reconciliationNav: "Reconciliation",
+    nagsNav: "Nags",
     // Notifications
     notificationsHeader: "Notifications",
     unread: "unread",
@@ -368,6 +373,11 @@ export const dictionaries = {
     leadsNav: "العملاء المحتملون",
     hrNav: "الموارد البشرية",
     accountingNav: "المحاسبة",
+    invoicesNav: "فواتير المبيعات",
+    billsNav: "فواتير المشتريات",
+    vatReturnNav: "إقرار ضريبة القيمة المضافة",
+    reconciliationNav: "تسوية البنك",
+    nagsNav: "تذكيرات",
     // Notifications
     notificationsHeader: "الإشعارات",
     unread: "غير مقروءة",

@@ -2504,6 +2504,478 @@ async function pushInvoiceTool(input) {
 }
 
 // =============================================================================
+// OVERDUE-NAG REPLY HANDLERS — admin replies "send" or "skip" on the
+// WhatsApp DM the scheduler sent; the agent dispatches via these tools.
+// =============================================================================
+
+async function _resolveNagId(input) {
+  if (input.nag_id) return input.nag_id
+  if (input.invoice_number && input.stage) {
+    const { data: inv } = await supabase
+      .from('accounting_invoices').select('id').eq('invoice_number', input.invoice_number).maybeSingle()
+    if (!inv) return null
+    const { data: nag } = await supabase
+      .from('invoice_nag_log')
+      .select('id')
+      .eq('invoice_id', inv.id)
+      .eq('stage', input.stage)
+      .eq('status', 'pending')
+      .maybeSingle()
+    return nag?.id ?? null
+  }
+  // Last resort: most recent pending
+  const { data: latest } = await supabase
+    .from('invoice_nag_log').select('id').eq('status', 'pending')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  return latest?.id ?? null
+}
+
+async function findPendingNagsTool(input) {
+  const { data } = await supabase
+    .from('invoice_nag_log')
+    .select(`
+      id, stage, status, draft_text, created_at,
+      invoice:invoice_id (id, invoice_number, customer_name, client_id, total, currency, issue_date)
+    `)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Math.min(50, input?.limit ?? 5)))
+  return {
+    count: data?.length ?? 0,
+    rows: (data ?? []).map((r) => ({
+      nag_id: r.id,
+      stage: r.stage,
+      invoice_number: r.invoice?.invoice_number,
+      customer_name: r.invoice?.customer_name,
+      total: r.invoice?.total,
+      currency: r.invoice?.currency,
+      issue_date: r.invoice?.issue_date,
+      draft_preview: String(r.draft_text || '').slice(0, 240),
+    })),
+  }
+}
+
+async function sendNagTool(input) {
+  const nagId = await _resolveNagId(input)
+  if (!nagId) throw new Error('No pending nag found. Use find_pending_nags to list them.')
+  if (!input.channel || (input.channel !== 'whatsapp' && input.channel !== 'email')) {
+    throw new Error('channel must be "whatsapp" or "email".')
+  }
+
+  const { data: nag } = await supabase
+    .from('invoice_nag_log')
+    .select(`
+      id, status, draft_text,
+      invoice:invoice_id (id, invoice_number, customer_name, client_id, total, currency)
+    `).eq('id', nagId).maybeSingle()
+  if (!nag) throw new Error('nag not found')
+  if (nag.status !== 'pending') throw new Error(`Nag is not pending (currently: ${nag.status}).`)
+
+  const body = (input.edited_body || nag.draft_text || '').trim()
+  if (!body) throw new Error('Empty draft — nothing to send.')
+
+  const inv = nag.invoice
+  if (!inv?.client_id) throw new Error('Invoice has no client_id linked; cannot resolve recipient.')
+
+  const { data: client } = await supabase
+    .from('clients').select('email, whatsapp, phone, company_name, full_name')
+    .eq('id', inv.client_id).maybeSingle()
+  if (!client) throw new Error('Client record not found.')
+
+  if (input.channel === 'whatsapp') {
+    const phone = client.whatsapp || client.phone
+    if (!phone) throw new Error('Client has no whatsapp/phone on file — try channel="email" or update the client first.')
+    // Reuse the outbound send. Don't bump last_contacted as a side effect here
+    // because the marker is "we collected a payment", not "we made outreach".
+    await sendWhatsappMessage({ to_phone: phone, text: body, client_id: inv.client_id })
+  } else {
+    // Email — call sendEmail executor directly. It takes care of fallback FROM.
+    const r = await sendEmail({
+      to: client.email,
+      subject: `Payment reminder — ${inv.invoice_number} (${Number(inv.total ?? 0).toLocaleString('en-US')} ${inv.currency || 'SAR'})`,
+      text: body,
+      client_id: inv.client_id,
+    })
+    if (!r?.sent) throw new Error('Email send failed.')
+  }
+
+  await supabase.from('invoice_nag_log').update({
+    status: 'sent',
+    channel: input.channel,
+    draft_text: body,
+    sent_at: new Date().toISOString(),
+  }).eq('id', nagId).eq('status', 'pending')
+
+  await revalidate(['/accounting/nags'])
+  return {
+    sent: true,
+    channel: input.channel,
+    invoice_number: inv.invoice_number,
+  }
+}
+
+async function skipNagTool(input) {
+  const nagId = await _resolveNagId(input)
+  if (!nagId) throw new Error('No pending nag found. Use find_pending_nags to list them.')
+  const { error } = await supabase
+    .from('invoice_nag_log').update({ status: 'skipped' })
+    .eq('id', nagId).eq('status', 'pending')
+  if (error) throw new Error(`skip failed: ${error.message}`)
+  await revalidate(['/accounting/nags'])
+  return { skipped: true }
+}
+
+// =============================================================================
+// BILLS / EXPENSES — AP side of accounting. Mirrors invoice tooling.
+// Workflow: vendor receipt → create_draft_bill → admin approve_bill →
+// push_bill → Qoyod /bills or /simple_bills. Same Qoyod fetch helper
+// (_qoyodRequest) reused.
+// =============================================================================
+
+async function _nextBillReference() {
+  const year = new Date().getFullYear()
+  const prefix = `BILL-${year}-`
+  const { data } = await supabase
+    .from('accounting_bills')
+    .select('bill_reference')
+    .like('bill_reference', `${prefix}%`)
+    .order('bill_reference', { ascending: false })
+    .limit(1)
+  const last = data?.[0]?.bill_reference
+  const n = last ? parseInt(last.slice(prefix.length), 10) + 1 : 1
+  return `${prefix}${String(n).padStart(3, '0')}`
+}
+
+async function _resolveBillId(idOrRef) {
+  if (!idOrRef) return null
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRef)) {
+    return idOrRef
+  }
+  const { data } = await supabase
+    .from('accounting_bills')
+    .select('id')
+    .eq('bill_reference', idOrRef)
+    .maybeSingle()
+  return data?.id ?? null
+}
+
+function _vendorFingerprint(s) {
+  if (!s) return ''
+  return String(s).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ').replace(/[^\p{L}\p{N} ]/gu, '').trim().slice(0, 120)
+}
+
+async function suggestBillCategoryTool(input) {
+  const fp = _vendorFingerprint(input.vendor_name)
+  if (!fp) return null
+  const { data } = await supabase
+    .from('expense_category_mappings')
+    .select('category, qoyod_expense_account_id, hit_count')
+    .eq('vendor_fingerprint', fp)
+    .maybeSingle()
+  return data ?? null
+}
+
+async function _rememberBillCategory(vendor_name, category, qoyod_expense_account_id) {
+  const fp = _vendorFingerprint(vendor_name)
+  if (!fp || !category) return
+  const { data: existing } = await supabase
+    .from('expense_category_mappings')
+    .select('id, hit_count')
+    .eq('vendor_fingerprint', fp)
+    .maybeSingle()
+  if (existing) {
+    await supabase.from('expense_category_mappings').update({
+      category,
+      qoyod_expense_account_id: qoyod_expense_account_id ?? null,
+      hit_count: (existing.hit_count ?? 0) + 1,
+      last_used_at: new Date().toISOString(),
+    }).eq('id', existing.id)
+  } else {
+    await supabase.from('expense_category_mappings').insert({
+      vendor_fingerprint: fp,
+      vendor_name_sample: vendor_name,
+      category,
+      qoyod_expense_account_id: qoyod_expense_account_id ?? null,
+    })
+  }
+}
+
+async function createDraftBillTool(input) {
+  const currency = input.currency || 'SAR'
+  const vat_rate = input.vat_rate ?? 15
+
+  // Pre-fill category from learned mapping if admin didn't override.
+  let category = input.category ?? null
+  let qoyod_expense_account_id = null
+  if (!category) {
+    const sugg = await suggestBillCategoryTool({ vendor_name: input.vendor_name })
+    if (sugg?.category) {
+      category = sugg.category
+      qoyod_expense_account_id = sugg.qoyod_expense_account_id ?? null
+    }
+  }
+
+  let line_items = Array.isArray(input.line_items) ? input.line_items : []
+  // Simple receipt (cash purchase, one-line ticket) — auto-build a
+  // placeholder line so the admin only has to confirm.
+  if (line_items.length === 0 && (input.total || input.subtotal)) {
+    const sub = input.subtotal ?? Math.round(((input.total ?? 0) / (1 + vat_rate / 100)) * 100) / 100
+    line_items = [{
+      description: `${input.vendor_name} — auto-extracted from receipt (please edit before approving)`,
+      qty: 1, unit_price: sub, vat_rate,
+    }]
+  }
+
+  const computedLines = line_items.map((l) => {
+    const subtotal = Number(l.qty ?? 1) * Number(l.unit_price ?? 0)
+    const vat = Math.round(subtotal * Number(l.vat_rate ?? vat_rate)) / 100
+    return { ...l, vat_amount: vat, line_total: subtotal }
+  })
+  const subtotal = computedLines.reduce((s, l) => s + Number(l.line_total ?? 0), 0)
+  const vat_amount = input.vat_amount ?? Math.round(subtotal * vat_rate) / 100
+  const total = input.total ?? Math.round((subtotal + vat_amount) * 100) / 100
+
+  const bill_reference = await _nextBillReference()
+  const row = {
+    vendor_name: input.vendor_name,
+    vendor_vat: input.vendor_vat ?? null,
+    vendor_cr: input.vendor_cr ?? null,
+    vendor_address: input.vendor_address ?? null,
+    receipt_url: input.receipt_url ?? null,
+    bill_number: input.bill_number ?? null,
+    bill_reference,
+    issue_date: input.issue_date ?? new Date().toISOString().slice(0, 10),
+    due_date: input.due_date ?? null,
+    payment_date: input.payment_date ?? null,
+    payment_method: input.payment_method ?? null,
+    payment_reference: input.payment_reference ?? null,
+    category,
+    qoyod_expense_account_id,
+    is_simple: !!input.is_simple,
+    currency,
+    line_items: computedLines,
+    subtotal,
+    vat_rate,
+    vat_amount,
+    total,
+    notes: input.notes ?? null,
+    status: 'draft',
+  }
+  const { data, error } = await supabase
+    .from('accounting_bills').insert(row).select('id, bill_reference').single()
+  if (error) throw new Error(`create draft bill failed: ${error.message}`)
+
+  await supabase.from('notifications').insert({
+    user_id: null,
+    title: `Draft bill ${data.bill_reference}`,
+    message: `${input.vendor_name} — ${total.toLocaleString('en-US')} ${currency}${category ? ` · ${category}` : ''}. Review at /accounting/bills/${data.id}.`,
+    type: 'bill_draft',
+    related_id: data.id,
+    is_read: false,
+  }).catch(() => null)
+
+  await revalidate(['/accounting/bills', '/notifications'])
+  return {
+    id: data.id,
+    bill_reference: data.bill_reference,
+    total, vat_amount, currency, category,
+    suggested_from_history: !input.category && !!category,
+  }
+}
+
+async function findBillsTool(input) {
+  let q = supabase.from('accounting_bills')
+    .select('id, bill_reference, vendor_name, category, total, vat_amount, currency, status, payment_date, issue_date, is_simple, created_at')
+    .neq('status', 'void')
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Math.min(200, input.limit ?? 20)))
+  if (input.status) q = q.eq('status', input.status)
+  if (input.category) q = q.eq('category', input.category)
+  if (input.from_date) q = q.gte('issue_date', input.from_date)
+  if (input.to_date) q = q.lte('issue_date', input.to_date)
+  const fuzzy = input.q || input.vendor
+  if (fuzzy) q = q.or(`vendor_name.ilike.%${fuzzy}%,bill_reference.ilike.%${fuzzy}%,bill_number.ilike.%${fuzzy}%`)
+  const { data, error } = await q
+  if (error) throw new Error(`find bills failed: ${error.message}`)
+  return { count: data.length, rows: data }
+}
+
+async function approveBillTool(input) {
+  const id = await _resolveBillId(input.id)
+  if (!id) throw new Error(`bill not found: ${input.id}`)
+
+  // Teach the categorizer the (vendor → category) mapping on approval.
+  const { data: bill } = await supabase
+    .from('accounting_bills')
+    .select('vendor_name, category, qoyod_expense_account_id')
+    .eq('id', id).maybeSingle()
+  if (bill?.vendor_name && bill.category) {
+    await _rememberBillCategory(bill.vendor_name, bill.category, bill.qoyod_expense_account_id)
+  }
+
+  const { data, error } = await supabase
+    .from('accounting_bills')
+    .update({ status: 'approved', approved_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('status', 'draft')
+    .select('bill_reference')
+    .single()
+  if (error) throw new Error(`approve failed: ${error.message}`)
+  if (!data) throw new Error('Bill is not in draft status (already approved/pushed/void).')
+  await revalidate(['/accounting/bills', `/accounting/bills/${id}`])
+  return { approved: true, bill_reference: data.bill_reference, id }
+}
+
+async function _ensureQoyodVendor(apiKey, bill) {
+  if (bill.qoyod_vendor_id) return bill.qoyod_vendor_id
+  const fp = _vendorFingerprint(bill.vendor_name)
+  if (!fp) return null
+
+  const { data: cached } = await supabase
+    .from('qoyod_vendors').select('qoyod_vendor_id').eq('fingerprint', fp).maybeSingle()
+  if (cached?.qoyod_vendor_id) {
+    await supabase.from('accounting_bills')
+      .update({ qoyod_vendor_id: cached.qoyod_vendor_id }).eq('id', bill.id).catch(() => null)
+    return cached.qoyod_vendor_id
+  }
+
+  const r = await _qoyodRequest(apiKey, 'POST', '/vendors', {
+    vendor: {
+      name: bill.vendor_name,
+      vat_number: bill.vendor_vat || undefined,
+      cr_number: bill.vendor_cr || undefined,
+      address: bill.vendor_address || undefined,
+    },
+  })
+  const vid = r?.vendor?.id
+  if (vid) {
+    await supabase.from('qoyod_vendors').insert({
+      fingerprint: fp, vendor_name: bill.vendor_name, qoyod_vendor_id: vid,
+    }).catch(() => null)
+    await supabase.from('accounting_bills').update({ qoyod_vendor_id: vid }).eq('id', bill.id).catch(() => null)
+  }
+  return vid
+}
+
+async function pushBillTool(input) {
+  const id = await _resolveBillId(input.id)
+  if (!id) throw new Error(`bill not found: ${input.id}`)
+
+  const { data: bill } = await supabase
+    .from('accounting_bills').select('*').eq('id', id).maybeSingle()
+  if (!bill) throw new Error('bill not found')
+  if (bill.status !== 'approved') {
+    throw new Error(`Bill must be approved first (currently: ${bill.status}).`)
+  }
+
+  const { data: settings } = await supabase
+    .from('agency_settings')
+    .select('qoyod_api_key, qoyod_default_inventory_id, qoyod_default_payment_account')
+    .eq('id', 'default').maybeSingle()
+  const apiKey = settings?.qoyod_api_key
+
+  if (!apiKey) {
+    await supabase.from('accounting_bills').update({ push_error: 'Qoyod API key not configured.' }).eq('id', id)
+    throw new Error('Qoyod API key not set. Open the dashboard → Settings → Accounting (قيود) and paste the API key. Then retry push.')
+  }
+
+  try {
+    const vendor_id = await _ensureQoyodVendor(apiKey, bill)
+    if (!vendor_id) throw new Error('Cannot resolve Qoyod vendor — bill has no vendor_name.')
+
+    let externalId
+    const issue_date = bill.issue_date
+
+    if (bill.is_simple) {
+      const expense_account = bill.qoyod_expense_account_id
+      if (!expense_account) {
+        throw new Error('Simple bill needs qoyod_expense_account_id — set the category or paste an account id on the bill before pushing.')
+      }
+      const created = await _qoyodRequest(apiKey, 'POST', '/simple_bills', {
+        simple_bill: {
+          vendor_id,
+          reference: bill.bill_reference,
+          description: bill.notes || undefined,
+          issue_date,
+          due_date: bill.due_date || issue_date,
+          amount: Number(bill.total ?? 0),
+          expense_account_id: expense_account,
+          tax_percent: Number(bill.vat_rate ?? 15),
+        },
+      })
+      externalId = created?.simple_bill?.id
+    } else {
+      const vat_rate = Number(bill.vat_rate ?? 15)
+      const lines = Array.isArray(bill.line_items) ? bill.line_items : []
+      if (lines.length === 0) throw new Error('Bill has no line items.')
+      const qoyodLines = lines.map((l) => ({
+        description: l.description || 'Expense',
+        quantity: Number(l.qty ?? 1),
+        unit_price: Number(l.unit_price ?? 0),
+        tax_percent: Number(l.vat_rate ?? vat_rate),
+        account_id: bill.qoyod_expense_account_id ?? undefined,
+      }))
+      const created = await _qoyodRequest(apiKey, 'POST', '/bills', {
+        bill: {
+          vendor_id,
+          reference: bill.bill_reference,
+          description: bill.notes || undefined,
+          issue_date,
+          due_date: bill.due_date || issue_date,
+          status: 'Approved',
+          inventory_id: settings?.qoyod_default_inventory_id ?? undefined,
+          line_items: qoyodLines,
+        },
+      })
+      externalId = created?.bill?.id
+    }
+
+    // Optional bill_payment record when the receipt already shows it was paid.
+    if (bill.payment_date && settings?.qoyod_default_payment_account) {
+      try {
+        await _qoyodRequest(apiKey, 'POST', '/bill_payments', {
+          bill_payment: {
+            bill_id: externalId,
+            account_id: settings.qoyod_default_payment_account,
+            date: bill.payment_date,
+            amount: String(bill.total ?? 0),
+            reference: bill.payment_reference || `pay-${externalId}`,
+          },
+        })
+      } catch (payErr) {
+        console.warn('[qoyod] bill payment record failed:', payErr?.message)
+      }
+    }
+
+    const externalUrl = `https://www.qoyod.com/${bill.is_simple ? 'simple_bills' : 'bills'}/${externalId}`
+    await supabase.from('accounting_bills').update({
+      status: bill.payment_date ? 'paid' : 'pushed',
+      external_system: 'qoyod',
+      external_id: String(externalId),
+      external_url: externalUrl,
+      external_pushed_at: new Date().toISOString(),
+      push_error: null,
+    }).eq('id', id)
+
+    await revalidate(['/accounting/bills', `/accounting/bills/${id}`])
+    return {
+      pushed: true,
+      bill_reference: bill.bill_reference,
+      qoyod_bill_id: externalId,
+      qoyod_url: externalUrl,
+      paid: !!bill.payment_date,
+    }
+  } catch (err) {
+    const msg = err?.message ?? 'unknown error'
+    await supabase.from('accounting_bills').update({
+      status: 'failed', push_error: msg,
+    }).eq('id', id)
+    throw new Error(msg)
+  }
+}
+
+// =============================================================================
 // REGISTRY
 // =============================================================================
 
@@ -2603,6 +3075,16 @@ const registry = {
   find_invoices: findInvoices,
   approve_invoice: approveInvoiceTool,
   push_invoice: pushInvoiceTool,
+  // accounting (bills / expenses)
+  create_draft_bill: createDraftBillTool,
+  find_bills: findBillsTool,
+  approve_bill: approveBillTool,
+  push_bill: pushBillTool,
+  suggest_bill_category: suggestBillCategoryTool,
+  // overdue-invoice nags
+  find_pending_nags: findPendingNagsTool,
+  send_nag: sendNagTool,
+  skip_nag: skipNagTool,
   // weekly reports — service-block model
   create_weekly_report: createWeeklyReport,
   find_weekly_report: findWeeklyReport,

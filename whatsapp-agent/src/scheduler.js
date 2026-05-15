@@ -406,6 +406,116 @@ async function tickContentPublishDates(sock, notifyJids, today) {
   }
 }
 
+// =============================================================================
+// Overdue invoice nag-bot. Walks accounting_invoices where status='approved'
+// or 'pushed' AND payment_date is null AND issue_date is past the stage
+// threshold. Drafts a follow-up message and DMs it to admin for approval
+// before sending — never auto-sends to clients without admin signoff.
+//
+// Stages:
+//   gentle_7d     — 7 days after issue, friendly nudge
+//   firm_14d      — 14 days, firmer wording
+//   escalation_30d — 30 days, offer payment plan / formal escalation
+//
+// Dedupe via invoice_nag_log (one row per invoice+stage, UNIQUE).
+// =============================================================================
+async function tickOverdueInvoices(sock, notifyJids, today) {
+  const fallbackJid = notifyJids[0]
+  if (!fallbackJid) return
+
+  const NOW_MS = Date.parse(today + 'T00:00:00Z')
+  const stages = [
+    { key: 'gentle_7d',      days: 7,  tone: 'gentle' },
+    { key: 'firm_14d',       days: 14, tone: 'firm' },
+    { key: 'escalation_30d', days: 30, tone: 'escalation' },
+  ]
+
+  for (const stage of stages) {
+    const cutoff = new Date(NOW_MS - stage.days * 86_400_000).toISOString().slice(0, 10)
+
+    const { data: candidates, error } = await supabase
+      .from('accounting_invoices')
+      .select('id, invoice_number, customer_name, client_id, total, currency, issue_date, payment_date, status')
+      .in('status', ['approved', 'pushed'])
+      .is('payment_date', null)
+      .lte('issue_date', cutoff)
+      .neq('status', 'void')
+      .limit(20)
+    if (error) {
+      if (!String(error.message).toLowerCase().includes('column')) {
+        console.error('[scheduler/overdue] query failed:', error.message)
+      }
+      continue
+    }
+    if (!candidates?.length) continue
+
+    for (const inv of candidates) {
+      // Skip if we already nagged at this stage
+      const { data: existing } = await supabase
+        .from('invoice_nag_log')
+        .select('id, status')
+        .eq('invoice_id', inv.id)
+        .eq('stage', stage.key)
+        .maybeSingle()
+      if (existing) continue
+
+      // Resolve client contact for the message body context
+      let clientName = inv.customer_name
+      let clientEmail = null
+      let clientWA = null
+      if (inv.client_id) {
+        const { data: c } = await supabase
+          .from('clients').select('company_name, full_name, email, whatsapp, phone').eq('id', inv.client_id).maybeSingle()
+        if (c) {
+          clientName = c.company_name || c.full_name || clientName
+          clientEmail = c.email
+          clientWA = c.whatsapp || c.phone
+        }
+      }
+
+      // Draft the body. Keep deterministic templates so we don't burn an
+      // OpenAI call per overdue invoice every 30s. Admin can rewrite in
+      // the dashboard if they want something fancier.
+      const amount = `${Number(inv.total ?? 0).toLocaleString('en-US')} ${inv.currency || 'SAR'}`
+      const tmpl = {
+        gentle: `Hi ${clientName || 'there'},\nQuick reminder — invoice ${inv.invoice_number} for ${amount} from ${inv.issue_date} is now 7 days past due. Could you confirm when payment is on its way?\nLet me know if anything's blocking it.\nThanks,\nEmergize`,
+        firm: `Hi ${clientName || 'there'},\nFollowing up again on invoice ${inv.invoice_number} (${amount}, issued ${inv.issue_date}) — it's now two weeks past due.\nIf the bank transfer's been sent please share the receipt; otherwise let's get this settled this week.\nThanks,\nEmergize`,
+        escalation: `Hi ${clientName || 'there'},\nInvoice ${inv.invoice_number} (${amount}) has been outstanding for over 30 days. We need to settle this — happy to discuss a short payment plan if cash flow's tight, otherwise please process the transfer today and send the receipt.\nThanks,\nEmergize`,
+      }[stage.tone]
+
+      // Insert a pending nag-log row and admin-broadcast notification.
+      // Admin will see the draft in /accounting/nags and choose channel
+      // (whatsapp/email/skip).
+      try {
+        await supabase.from('invoice_nag_log').insert({
+          invoice_id: inv.id,
+          stage: stage.key,
+          status: 'pending',
+          draft_text: tmpl,
+        })
+      } catch (e) {
+        // UNIQUE conflict — race with another tick. Safe to skip.
+        continue
+      }
+
+      const channelHint = clientWA ? 'WhatsApp' : clientEmail ? 'email' : 'manual'
+      const summary =
+        `💰 Overdue: ${inv.invoice_number}\n\n` +
+        `${clientName || '—'} — ${amount}\n` +
+        `Issued ${inv.issue_date} (${stage.days}d overdue)\n` +
+        `Stage: ${stage.key}\n\n` +
+        `Draft (review + reply 'send' to fire via ${channelHint}, 'skip' to dismiss):\n\n${tmpl}`
+
+      try {
+        await sock.sendMessage(fallbackJid, { text: summary })
+        console.log(`[scheduler/overdue] nagged admin for ${inv.invoice_number} at stage ${stage.key}`)
+      } catch (sendErr) {
+        console.error('[scheduler/overdue] send failed:', sendErr?.message ?? sendErr)
+      }
+    }
+  }
+}
+
 export async function startScheduler(sock, notifyJids) {
   if (started) return
   started = true
@@ -449,6 +559,11 @@ export async function startScheduler(sock, notifyJids) {
       await tickContentPublishDates(sock, jids, today)
     } catch (err) {
       console.error('[scheduler] content-publish tick error:', err?.message ?? err)
+    }
+    try {
+      await tickOverdueInvoices(sock, jids, today)
+    } catch (err) {
+      console.error('[scheduler] overdue-invoices tick error:', err?.message ?? err)
     }
   }
 

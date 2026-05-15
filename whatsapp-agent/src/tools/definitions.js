@@ -2355,6 +2355,170 @@ const hrTools = [
       },
     },
   },
+
+  // ============================================================================
+  // EMPLOYEE SELF-SERVICE — Every tool below auto-resolves the caller from the
+  // sender's WhatsApp phone → team_members.whatsapp, and ALWAYS scopes the
+  // query to that employee. There is no way for an employee to read someone
+  // else's data. Anyone DM'ing the bot can use these regardless of admin role.
+  // ============================================================================
+  {
+    type: 'function',
+    function: {
+      name: 'my_expiries',
+      description:
+        "Show the caller their own document-expiry timeline — iqama, passport, visa, plus any HR documents on file with an expiry date. Use when an employee asks \"when does my iqama expire?\" / \"check my visa date\" / \"كم باقي على إقامتي\".",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_leaves',
+      description: "Show the caller's own leave history (approved / pending / rejected) and their current annual_leave_balance. \"show me my leaves\", \"have I taken any sick days this year?\".",
+      parameters: {
+        type: 'object',
+        properties: { limit: { type: 'integer', description: 'Default 10' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_leave_balance',
+      description: "Just the caller's remaining annual leave + days used this year. Quick lookup for \"how many leave days do I have left?\".",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_payroll',
+      description: "List the caller's recent payslips (last N months). Use for \"show me my payslips\", \"have I been paid this month?\".",
+      parameters: {
+        type: 'object',
+        properties: {
+          year: { type: 'integer' },
+          month: { type: 'integer' },
+          limit: { type: 'integer', description: 'Default 6' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_pay_breakdown',
+      description: "Show the caller's payroll breakdown for a specific month — every line item (base, allowances, GOSI, unpaid leave, EOSB accrual). Default = current month. Use for \"what's in my payslip?\", \"explain my deductions\".",
+      parameters: {
+        type: 'object',
+        properties: {
+          year: { type: 'integer' },
+          month: { type: 'integer' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_eosb',
+      description: "Show the caller their accrued end-of-service balance per KSA labour law (0.5 month/yr first 5 years, 1.0 month/yr after). Use for \"what's my end-of-service?\", \"كم مكافأتي\".",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_my_salary_slip',
+      description: "Re-send the caller's salary slip via WhatsApp + email for a given month. Default = most recent paid month. Use when employee says \"send me my last payslip\", \"I lost my March slip\".",
+      parameters: {
+        type: 'object',
+        properties: {
+          year: { type: 'integer' },
+          month: { type: 'integer' },
+          channel: { type: 'string', enum: ['whatsapp', 'email', 'both'] },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_onboarding',
+      description: "Show the caller's own onboarding checklist + progress. Use for \"what's left on my onboarding?\", \"show me my checklist\".",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'complete_my_onboarding_item',
+      description: "Mark one of the caller's own onboarding items as done. Use when employee says \"I signed the NDA\", \"submitted my IBAN\", \"done with the bank form\". The tool only accepts items belonging to the caller — admin override is automatic if the caller is admin.",
+      parameters: {
+        type: 'object',
+        properties: { item_id: { type: 'string', description: 'The onboarding_checklist_items.id — call my_onboarding first to find the right id.' } },
+        required: ['item_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_performance',
+      description: "Generate the caller's own performance brief (last N days). Same as performance_brief but pre-scoped to the caller — for self-review or peeking at \"how am I doing this month?\".",
+      parameters: {
+        type: 'object',
+        properties: { days: { type: 'integer', description: 'Default 30' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_attendance',
+      description: "Show the caller's own attendance for a given month — every check-in / WFH / late entry. Default = current month.",
+      parameters: {
+        type: 'object',
+        properties: {
+          year: { type: 'integer' },
+          month: { type: 'integer' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_hr_letter',
+      description: "Employee asks the bot to draft an HR letter for them (salary certificate, employment letter, NOC, experience letter). Creates a draft in hr_letters + notifies admin to review + sign. Use when employee says \"I need a salary certificate for my visa\", \"can you make me an employment letter for the bank?\".",
+      parameters: {
+        type: 'object',
+        properties: {
+          letter_type: { type: 'string', enum: ['salary_certificate','employment_letter','noc','experience_letter','custom'] },
+          subject: { type: 'string', description: 'Optional. If omitted, defaults to "<letter type> for <employee name>".' },
+          reason: { type: 'string', description: 'Why do they need it? (e.g. "for visa renewal", "bank loan application"). Helps admin contextualize.' },
+        },
+        required: ['letter_type'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_letters',
+      description: "List letters the company has issued to the caller (or that they\\'ve requested but are still in draft).",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_documents',
+      description: "List the caller's documents on file — passport / iqama / visa scans, contracts, certs. Read-only.",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
 ]
 
 // =============================================================================

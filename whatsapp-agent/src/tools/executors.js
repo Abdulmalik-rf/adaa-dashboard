@@ -2984,6 +2984,49 @@ async function pushBillTool(input) {
 // "<digits>@s.whatsapp.net" or "<lid>@lid". The team_members.whatsapp column
 // is a free-form phone string — strip non-digits and try a prefix/suffix
 // match.
+// Cache the agency admin's JID(s) on agency_settings.admin_whatsapp_jids
+// (comma-separated). Anyone else DM'ing the bot is treated as a regular
+// employee — they can self-serve queries / submit requests, but cannot
+// approve/reject/destructively act on anyone else's data.
+async function _isAdminSender(ctxOverride = null) {
+  const ctx = ctxOverride ?? getRequest()
+  if (!ctx?.senderJid) return false
+
+  // Allowed admin JIDs from env (comma-separated). This is the same source the
+  // scheduler uses for notifyJids — so anyone who receives the proactive nags
+  // is by definition an admin.
+  const envAdmins = String(process.env.NOTIFY_JIDS || process.env.ADMIN_JIDS || '')
+    .split(',').map((s) => s.trim()).filter(Boolean)
+  if (envAdmins.includes(ctx.senderJid)) return true
+
+  const digits = String(ctx.senderJid).split('@')[0].replace(/\D/g, '')
+  if (!digits) return false
+  const tail = digits.slice(-9)
+  for (const j of envAdmins) {
+    const jd = j.split('@')[0].replace(/\D/g, '')
+    if (jd && (jd.endsWith(tail) || tail.endsWith(jd.slice(-9)))) return true
+  }
+
+  // Or anyone with role='admin' on team_members
+  const { data: emp } = await supabase
+    .from('team_members').select('id, role, whatsapp, phone, status').eq('status', 'active')
+  for (const e of (emp ?? [])) {
+    if (e.role !== 'admin') continue
+    const wa = String(e.whatsapp || '').replace(/\D/g, '')
+    const ph = String(e.phone || '').replace(/\D/g, '')
+    if ((wa && wa.endsWith(tail)) || (ph && ph.endsWith(tail))) return true
+  }
+  return false
+}
+
+// Throw if caller isn't admin. Use at the top of any destructive HR tool that
+// could affect a different employee than the caller (approve_leave,
+// mark_payroll_paid, draft_hr_letter, etc.).
+async function _requireAdmin() {
+  const ok = await _isAdminSender()
+  if (!ok) throw new Error('Admin only. Ask your manager to do this — only admins can run this action.')
+}
+
 async function _resolveEmployeeFromSender(ctxOverride = null) {
   const ctx = ctxOverride ?? getRequest()
   if (!ctx?.senderJid) return null
@@ -3207,6 +3250,7 @@ async function findLeaveRequestsTool(input) {
 }
 
 async function approveLeaveTool(input) {
+  await _requireAdmin()
   const { data: leave } = await supabase
     .from('leave_requests')
     .select('id, employee_id, type, days, status')
@@ -3235,6 +3279,7 @@ async function approveLeaveTool(input) {
 }
 
 async function rejectLeaveTool(input) {
+  await _requireAdmin()
   if (!input.decision_note) throw new Error('decision_note is required.')
   const { error } = await supabase
     .from('leave_requests')
@@ -3304,6 +3349,7 @@ async function computeEosbTool(input) {
 }
 
 async function generatePayrollTool(input) {
+  await _requireAdmin()
   const year = Number(input.year)
   const month = Number(input.month)
   if (!year || !month || month < 1 || month > 12) throw new Error('Pass valid year + month.')
@@ -3404,6 +3450,7 @@ async function generatePayrollTool(input) {
 }
 
 async function markPayrollPaidTool(input) {
+  await _requireAdmin()
   const paidDate = input.paid_date || new Date().toISOString().slice(0, 10)
   const { data: row, error } = await supabase
     .from('payroll_records')
@@ -3609,6 +3656,7 @@ const ONBOARDING_TEMPLATES = {
 }
 
 async function startOnboardingTool(input) {
+  await _requireAdmin()
   const { data: emp } = await supabase
     .from('team_members').select('id, full_name, employment_type, nationality, hire_date').eq('id', input.employee_id).maybeSingle()
   if (!emp) throw new Error('employee not found')
@@ -3887,6 +3935,7 @@ async function findCandidatesTool(input) {
 }
 
 async function promoteCandidateTool(input) {
+  await _requireAdmin()
   const { data: cand } = await supabase.from('candidates').select('*').eq('id', input.candidate_id).maybeSingle()
   if (!cand) throw new Error('candidate not found')
   if (cand.status === 'hired') throw new Error('candidate already hired')
@@ -3939,6 +3988,7 @@ const KSA_LABOUR_LAW_CLAUSES = {
 }
 
 async function draftHrLetterTool(input) {
+  await _requireAdmin()
   let empId = input.employee_id ?? null
   if (!empId && input.employee_name) empId = await findOneTeamMemberIdByName(input.employee_name)
   if (!empId) throw new Error('Specify employee_id or employee_name.')
@@ -4074,6 +4124,291 @@ async function findHrDocumentsTool(input) {
   const { data, error } = await q
   if (error) throw new Error(error.message)
   return { count: data.length, rows: data.map((r) => ({ ...r, employee_name: r.team_members?.full_name })) }
+}
+
+// =============================================================================
+// HR — EMPLOYEE SELF-SERVICE
+//
+// All "my_*" tools resolve the caller from their WhatsApp number → the
+// team_members.whatsapp field. They're always scoped to the caller's own
+// data — there's no way for an employee to peek at someone else's iqama,
+// leave history, payslip, etc. Anyone DM'ing the bot can use these
+// regardless of admin status; the destructive tools above (approve_leave,
+// mark_payroll_paid, draft_hr_letter, etc.) still require admin.
+// =============================================================================
+
+async function _resolveSelfOrThrow() {
+  const emp = await _resolveEmployeeFromSender()
+  if (!emp) {
+    throw new Error("I couldn't find you in the team directory. Ask the admin to add your WhatsApp number to your team_members record.")
+  }
+  return emp
+}
+
+async function myExpiriesTool() {
+  const emp = await _resolveSelfOrThrow()
+  const today = new Date().toISOString().slice(0, 10)
+
+  // Pull native fields from team_members + any tracked HR documents
+  const { data: me } = await supabase
+    .from('team_members')
+    .select('iqama_expiry, passport_expiry, visa_expiry, iqama_number')
+    .eq('id', emp.id).maybeSingle()
+  const { data: docs } = await supabase
+    .from('hr_documents')
+    .select('id, doc_type, doc_number, issue_date, expiry_date')
+    .eq('employee_id', emp.id).not('expiry_date', 'is', null)
+    .order('expiry_date')
+
+  function daysOut(iso) {
+    const d = (new Date(iso + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86_400_000
+    return Math.round(d)
+  }
+  const out = []
+  if (me?.iqama_expiry)    out.push({ kind: 'iqama',    expiry: me.iqama_expiry,    days_until: daysOut(me.iqama_expiry),    number: me.iqama_number ?? null })
+  if (me?.passport_expiry) out.push({ kind: 'passport', expiry: me.passport_expiry, days_until: daysOut(me.passport_expiry), number: null })
+  if (me?.visa_expiry)     out.push({ kind: 'visa',     expiry: me.visa_expiry,     days_until: daysOut(me.visa_expiry),     number: null })
+  for (const d of (docs ?? [])) {
+    out.push({ kind: `document:${d.doc_type}`, expiry: d.expiry_date, days_until: daysOut(d.expiry_date), number: d.doc_number ?? null, document_id: d.id })
+  }
+  out.sort((a, b) => a.days_until - b.days_until)
+  return { employee_name: emp.full_name, count: out.length, items: out }
+}
+
+async function myLeavesTool(input) {
+  const emp = await _resolveSelfOrThrow()
+  const limit = Math.max(1, Math.min(50, input?.limit ?? 10))
+  const { data } = await supabase
+    .from('leave_requests')
+    .select('id, type, start_date, end_date, days, status, reason, decision_note, created_at, decided_at')
+    .eq('employee_id', emp.id)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  return { employee_name: emp.full_name, annual_leave_balance: emp.annual_leave_balance ?? 21, rows: data ?? [] }
+}
+
+async function myLeaveBalanceTool() {
+  const emp = await _resolveSelfOrThrow()
+  // Recompute used annual days this calendar year as a sanity check
+  const yearStart = new Date().toISOString().slice(0, 4) + '-01-01'
+  const { data: leaves } = await supabase
+    .from('leave_requests').select('days, type, status')
+    .eq('employee_id', emp.id).eq('type', 'annual').eq('status', 'approved')
+    .gte('start_date', yearStart)
+  const usedThisYear = (leaves ?? []).reduce((s, r) => s + Number(r.days || 0), 0)
+  return {
+    employee_name: emp.full_name,
+    annual_leave_balance_remaining: emp.annual_leave_balance ?? 21,
+    used_this_year: usedThisYear,
+  }
+}
+
+async function myPayrollTool(input) {
+  const emp = await _resolveSelfOrThrow()
+  let q = supabase.from('payroll_records')
+    .select('id, period_year, period_month, gross_amount, deductions, bonus, net_amount, currency, status, paid_date, method')
+    .eq('employee_id', emp.id)
+    .order('period_year', { ascending: false }).order('period_month', { ascending: false })
+    .limit(Math.max(1, Math.min(24, input?.limit ?? 6)))
+  if (input?.year) q = q.eq('period_year', input.year)
+  if (input?.month) q = q.eq('period_month', input.month)
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return { employee_name: emp.full_name, rows: data ?? [] }
+}
+
+async function myPayBreakdownTool(input) {
+  const emp = await _resolveSelfOrThrow()
+  // Find the matching payroll row
+  const now = new Date()
+  const year = Number(input?.year) || now.getUTCFullYear()
+  const month = Number(input?.month) || (now.getUTCMonth() + 1)
+  const { data: pay } = await supabase
+    .from('payroll_records')
+    .select('id, period_year, period_month, gross_amount, deductions, bonus, net_amount, currency, status, paid_date, method')
+    .eq('employee_id', emp.id).eq('period_year', year).eq('period_month', month).maybeSingle()
+  if (!pay) {
+    return { employee_name: emp.full_name, found: false, message: `No payroll row for ${year}-${String(month).padStart(2, '0')} yet.` }
+  }
+  const { data: lines } = await supabase
+    .from('payroll_line_items')
+    .select('label, label_ar, amount, is_deduction, kind').eq('payroll_id', pay.id).order('position')
+  return { employee_name: emp.full_name, found: true, payroll: pay, line_items: lines ?? [] }
+}
+
+async function myEosbTool() {
+  const emp = await _resolveSelfOrThrow()
+  const { data: me } = await supabase
+    .from('team_members')
+    .select('hire_date, base_salary, salary_currency').eq('id', emp.id).maybeSingle()
+  if (!me?.hire_date || !me?.base_salary) {
+    return { employee_name: emp.full_name, message: 'Missing hire_date or base_salary on your record — ask admin to set them.' }
+  }
+  const hire = new Date(me.hire_date + 'T00:00:00Z').getTime()
+  const yearsServed = Math.max(0, (Date.now() - hire) / (365.25 * 86_400_000))
+  const monthly = Number(me.base_salary)
+  const accrued = yearsServed <= 5
+    ? monthly * 0.5 * yearsServed
+    : monthly * 0.5 * 5 + monthly * 1.0 * (yearsServed - 5)
+  return {
+    employee_name: emp.full_name,
+    hire_date: me.hire_date,
+    years_served: Math.round(yearsServed * 100) / 100,
+    monthly_salary: monthly,
+    accrued_eosb: Math.round(accrued * 100) / 100,
+    currency: me.salary_currency || 'SAR',
+  }
+}
+
+async function requestMySalarySlipTool(input) {
+  const emp = await _resolveSelfOrThrow()
+  const now = new Date()
+  const year = Number(input?.year) || now.getUTCFullYear()
+  const month = Number(input?.month) || (now.getUTCMonth() + 1)
+  const { data: pay } = await supabase
+    .from('payroll_records').select('id, status').eq('employee_id', emp.id).eq('period_year', year).eq('period_month', month).maybeSingle()
+  if (!pay) throw new Error(`No payroll row for ${year}-${String(month).padStart(2, '0')}. Ask admin to run payroll first.`)
+  if (pay.status !== 'paid') throw new Error(`Slip not available yet — payroll is still ${pay.status}.`)
+  return await sendSalarySlipTool({ payroll_id: pay.id, channel: input?.channel || 'both' })
+}
+
+async function myOnboardingTool() {
+  const emp = await _resolveSelfOrThrow()
+  const { data: chk } = await supabase
+    .from('onboarding_checklists').select('id, template, status, started_at, completed_at').eq('employee_id', emp.id).maybeSingle()
+  if (!chk) return { employee_name: emp.full_name, has_checklist: false }
+  const { data: items } = await supabase
+    .from('onboarding_checklist_items').select('id, title, title_ar, category, owner_role, due_offset_days, done, done_at')
+    .eq('checklist_id', chk.id).order('position')
+  return {
+    employee_name: emp.full_name,
+    has_checklist: true,
+    checklist: chk,
+    items: items ?? [],
+    progress_pct: items?.length ? Math.round((items.filter(i => i.done).length / items.length) * 100) : 0,
+  }
+}
+
+async function completeMyOnboardingItemTool(input) {
+  const emp = await _resolveSelfOrThrow()
+  // Only allow the caller to update their OWN checklist items.
+  const { data: it } = await supabase
+    .from('onboarding_checklist_items')
+    .select('id, checklist_id, done, onboarding_checklists:checklist_id (employee_id)')
+    .eq('id', input.item_id).maybeSingle()
+  if (!it) throw new Error('Onboarding item not found.')
+  const ownerEmp = it.onboarding_checklists?.employee_id
+  if (ownerEmp !== emp.id) {
+    // Allow admin to override
+    const isAdmin = await _isAdminSender()
+    if (!isAdmin) throw new Error("That's not one of your onboarding items.")
+  }
+  const { error } = await supabase
+    .from('onboarding_checklist_items')
+    .update({ done: true, done_at: new Date().toISOString() })
+    .eq('id', input.item_id)
+  if (error) throw new Error(error.message)
+  await revalidate(['/hr/onboarding'])
+  return { done: true, item_id: input.item_id }
+}
+
+async function myPerformanceTool(input) {
+  const emp = await _resolveSelfOrThrow()
+  return await performanceBriefTool({ employee_id: emp.id, days: input?.days })
+}
+
+async function myAttendanceTool(input) {
+  const emp = await _resolveSelfOrThrow()
+  const now = new Date()
+  const year = Number(input?.year) || now.getUTCFullYear()
+  const month = Number(input?.month) || (now.getUTCMonth() + 1)
+  const from = `${year}-${String(month).padStart(2, '0')}-01`
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const to = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+  const { data: logs } = await supabase
+    .from('attendance_logs').select('log_date, status, late_minutes, check_in_at, check_out_at')
+    .eq('employee_id', emp.id).gte('log_date', from).lte('log_date', to)
+    .order('log_date')
+
+  const summary = { present: 0, wfh: 0, late: 0, absent: 0, late_minutes: 0 }
+  for (const r of (logs ?? [])) {
+    summary[r.status] = (summary[r.status] || 0) + 1
+    if (r.status === 'late') summary.late_minutes += Number(r.late_minutes || 0)
+  }
+  return {
+    employee_name: emp.full_name,
+    period: `${year}-${String(month).padStart(2, '0')}`,
+    summary,
+    rows: logs ?? [],
+  }
+}
+
+async function requestHrLetterTool(input) {
+  const emp = await _resolveSelfOrThrow()
+  if (!input.letter_type) throw new Error('letter_type is required.')
+  const subject = input.subject || `${input.letter_type.replace(/_/g, ' ')} for ${emp.full_name}`
+
+  // Create a draft on behalf of the employee — admin gets a notification to
+  // review + edit + send. We don't call draftHrLetterTool directly because
+  // that one requires admin; we want the EMPLOYEE to be able to kick off the
+  // process, then admin completes it.
+  const today = new Date().toISOString().slice(0, 10)
+  const refs = KSA_LABOUR_LAW_CLAUSES[input.letter_type] || []
+  const { data: empFull } = await supabase
+    .from('team_members')
+    .select('id, full_name, full_name_ar, job_title, job_title_ar, department, hire_date, base_salary, salary_currency, iqama_number, national_id')
+    .eq('id', emp.id).maybeSingle()
+  const bodies = _renderLetterBody(input.letter_type, empFull, subject, input.reason, refs, today)
+
+  const { data: letter, error } = await supabase.from('hr_letters').insert({
+    employee_id: emp.id,
+    letter_type: input.letter_type,
+    subject,
+    body_en: bodies.en,
+    body_ar: bodies.ar,
+    reference_clauses: refs,
+    status: 'draft',
+  }).select('id').single()
+  if (error) throw new Error(`request letter failed: ${error.message}`)
+
+  // Notify admin
+  await supabase.from('notifications').insert({
+    user_id: null,
+    title: `Letter request: ${emp.full_name}`,
+    message: `${emp.full_name} requested a ${input.letter_type.replace(/_/g, ' ')}${input.reason ? ` — ${input.reason}` : ''}. Review + send: /hr/letters/${letter.id}`,
+    type: 'letter_request',
+    related_id: letter.id,
+    is_read: false,
+  }).catch(() => null)
+
+  await revalidate(['/hr/letters', '/notifications'])
+  return {
+    requested: true,
+    letter_id: letter.id,
+    letter_type: input.letter_type,
+    review_url: `/hr/letters/${letter.id}`,
+    message: 'Letter draft created. Admin has been notified to review and send.',
+  }
+}
+
+async function myLettersTool() {
+  const emp = await _resolveSelfOrThrow()
+  const { data } = await supabase
+    .from('hr_letters')
+    .select('id, letter_type, subject, status, delivered_at, created_at')
+    .eq('employee_id', emp.id)
+    .order('created_at', { ascending: false }).limit(20)
+  return { employee_name: emp.full_name, rows: data ?? [] }
+}
+
+async function myDocumentsTool() {
+  const emp = await _resolveSelfOrThrow()
+  const { data } = await supabase
+    .from('hr_documents')
+    .select('id, doc_type, doc_number, issue_date, expiry_date, file_url, notes')
+    .eq('employee_id', emp.id)
+    .order('expiry_date', { ascending: true, nullsFirst: false })
+  return { employee_name: emp.full_name, rows: data ?? [] }
 }
 
 // =============================================================================
@@ -4216,6 +4551,21 @@ const registry = {
   // HR — documents
   add_hr_document: addHrDocumentTool,
   find_hr_documents: findHrDocumentsTool,
+  // HR — EMPLOYEE SELF-SERVICE (always scoped to the caller)
+  my_expiries: myExpiriesTool,
+  my_leaves: myLeavesTool,
+  my_leave_balance: myLeaveBalanceTool,
+  my_payroll: myPayrollTool,
+  my_pay_breakdown: myPayBreakdownTool,
+  my_eosb: myEosbTool,
+  request_my_salary_slip: requestMySalarySlipTool,
+  my_onboarding: myOnboardingTool,
+  complete_my_onboarding_item: completeMyOnboardingItemTool,
+  my_performance: myPerformanceTool,
+  my_attendance: myAttendanceTool,
+  request_hr_letter: requestHrLetterTool,
+  my_letters: myLettersTool,
+  my_documents: myDocumentsTool,
   // weekly reports — service-block model
   create_weekly_report: createWeeklyReport,
   find_weekly_report: findWeeklyReport,

@@ -1,7 +1,7 @@
 import { supabaseClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { cookies } from 'next/headers'
-import { ArrowUpRight, UserPlus, Phone, Mail, MessageCircle, Sparkles, AlertCircle, Clock } from 'lucide-react'
+import { ArrowUpRight, UserPlus, Phone, Mail, MessageCircle, Sparkles, AlertCircle, Clock, Download } from 'lucide-react'
 import { LeadActions } from './LeadActions'
 
 export const revalidate = 30
@@ -12,6 +12,7 @@ const T = {
     pageTitle: 'Leads & Outreach',
     pageSub: 'Every prospect from business cards, referrals, and inbound — track contact status and convert when they\'re ready.',
     addLead: 'Add Lead',
+    exportCsv: 'Export CSV',
     totalLeads: 'Total Leads',
     awaiting: 'Awaiting first contact',
     contactedToday: 'Contacted today',
@@ -49,6 +50,7 @@ const T = {
     pageTitle: 'العملاء المحتملون والمتابعة',
     pageSub: 'كل عميل محتمل من بطاقات الأعمال والإحالات والاستفسارات الواردة — تتبّع حالة التواصل وحوّلهم عندما يصبحون جاهزين.',
     addLead: 'إضافة محتمل',
+    exportCsv: 'تصدير CSV',
     totalLeads: 'إجمالي المحتملين',
     awaiting: 'بانتظار التواصل الأول',
     contactedToday: 'تم التواصل اليوم',
@@ -176,11 +178,21 @@ export default async function LeadsPage({
             {t.pageSub}
           </p>
         </div>
-        <Link href="/clients/new">
-          <button className="btn btn-primary shadow-lg shadow-[hsl(var(--primary)/0.2)] flex items-center gap-2">
-            <UserPlus className="h-4 w-4" /> {t.addLead}
-          </button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <a
+            href="/api/leads/export"
+            download
+            className="btn btn-secondary flex items-center gap-2"
+            title={t.exportCsv}
+          >
+            <Download className="h-4 w-4" /> {t.exportCsv}
+          </a>
+          <Link href="/clients/new">
+            <button className="btn btn-primary shadow-lg shadow-[hsl(var(--primary)/0.2)] flex items-center gap-2">
+              <UserPlus className="h-4 w-4" /> {t.addLead}
+            </button>
+          </Link>
+        </div>
       </div>
 
       {/* KPI STRIP */}

@@ -224,7 +224,15 @@ The URL is a public Supabase Storage link you can drop directly into tool calls.
 
 Common flows:
 - **PDF contract** ("here's the signed contract") → read the extracted text → find_client → call add_contract with the extracted title/parties/start/end/value. Then call add_client_file_link({ client_id, name: <filename>, file_path: <url>, category: "contract", file_type: "pdf" }) so it shows up under the client's Files tab.
-- **PDF invoice / payment receipt** → if related to an existing contract, call add_contract_payment (or mark_payment_paid if the user says "they paid"). Always attach via add_client_file_link.
+- **PDF payment receipt / bank transfer transcript** ("Acme paid us — make the invoice", "here's the transfer receipt") → read the extracted text to pull payer name, amount, payment date, transaction reference. THEN call find_client(payer name) + find_quotation(client_id, recent or matching amount) to tie it back to the original quote. THEN call create_draft_invoice with:
+    - client_id (from find_client) and quotation_id (from find_quotation) — the tool copies line items from the quote automatically
+    - receipt_url (the uploaded_document URL)
+    - customer_name, customer_vat (from client record if known), payment_date, payment_method, payment_reference
+    - notes (e.g. "Paid in full via bank transfer per receipt #12345 on 2026-05-14")
+  This creates a DRAFT VAT invoice in /accounting. Reply with the invoice_number returned + a one-line summary (e.g. "Draft INV-2026-001 ready — 5,750 SAR (incl. 750 VAT). Review at dashboard/accounting and approve when ready.")
+  Do NOT call create_quotation or anything that creates a new quote — the quote already exists, you're invoicing against it.
+  If find_quotation returns nothing and no quotation_id can be guessed, still call create_draft_invoice with just customer_name + total + receipt_url — the admin will fill in line items on the dashboard.
+  After admin says "approve INV-2026-001" → call approve_invoice. After "push it" / "send it to Qoyod" → call push_invoice (this currently errors with a clear "Qoyod token not configured" message until the API key is wired in; just relay that to the user).
 - **PDF anything else for a known client** → just attach via add_client_file_link with the most accurate category you can infer (proposal, design, branding, report, etc.).
 - **PDF the user wants you to forward** ("send this to +966555…") → send_whatsapp_file_url with the URL from the uploaded_document tag. ONE call. Don't re-upload.
 - **PDF the user wants you to email** ("forward this PDF to john@acme.com") → send_email with attachments=[{ url: <the document url>, filename: <name> }].

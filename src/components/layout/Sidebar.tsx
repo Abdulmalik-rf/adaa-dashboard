@@ -6,7 +6,7 @@ import Image from 'next/image'
 import {
   LayoutDashboard, Users, FileText, Bell, Folder, Settings,
   CheckSquare, Menu, X, CalendarDays, Image as ImageIcon, Activity,
-  BarChart3, MessageSquare, Sparkles, FileBarChart2, UserPlus, Briefcase
+  BarChart3, MessageSquare, Sparkles, FileBarChart2, UserPlus, Briefcase, Receipt
 } from 'lucide-react'
 import { useState } from 'react'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -68,6 +68,7 @@ export function Sidebar({ isAdmin = false, currentUser }: { isAdmin?: boolean; c
     { name: (t as any).hrNav ?? 'HR', href: '/hr', icon: Briefcase, adminOnly: true },
     { name: t.contracts, href: '/contracts', icon: FileText, adminOnly: true },
     { name: (t as any).quotationsManagement ?? 'Quotations', href: '/quotations', icon: FileText, adminOnly: true },
+    { name: (t as any).accountingNav ?? 'Accounting', href: '/accounting', icon: Receipt, adminOnly: true },
     { name: (t as any).weeklyReports ?? 'Weekly Reports', href: '/reports', icon: FileBarChart2 },
     { name: (t as any).calendarView ?? 'Calendar', href: '/calendar', icon: CalendarDays },
     { name: (t as any).content ?? 'Content', href: '/content', icon: ImageIcon },

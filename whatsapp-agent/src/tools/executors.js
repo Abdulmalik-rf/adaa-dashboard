@@ -2180,6 +2180,175 @@ async function scheduleWeeklyReports(input) {
 }
 
 // =============================================================================
+// ACCOUNTING / VAT INVOICES — receipt → draft → approve → push to Qoyod
+// =============================================================================
+
+async function _nextInvoiceNumber() {
+  const year = new Date().getFullYear()
+  const prefix = `INV-${year}-`
+  const { data } = await supabase
+    .from('accounting_invoices')
+    .select('invoice_number')
+    .like('invoice_number', `${prefix}%`)
+    .order('invoice_number', { ascending: false })
+    .limit(1)
+  const last = data?.[0]?.invoice_number
+  const n = last ? parseInt(last.slice(prefix.length), 10) + 1 : 1
+  return `${prefix}${String(n).padStart(3, '0')}`
+}
+
+// Resolve an id passed by the LLM that might be either a UUID or an
+// invoice_number ("INV-2026-001"). Returns the UUID or null.
+async function _resolveInvoiceId(idOrNumber) {
+  if (!idOrNumber) return null
+  // Quick heuristic: UUIDs contain hyphens at fixed positions and are 36 chars
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(idOrNumber)) return idOrNumber
+  const { data } = await supabase
+    .from('accounting_invoices')
+    .select('id')
+    .eq('invoice_number', idOrNumber)
+    .maybeSingle()
+  return data?.id ?? null
+}
+
+async function createDraftInvoice(input) {
+  const currency = input.currency || 'SAR'
+  const vat_rate = input.vat_rate ?? 15
+  let line_items = Array.isArray(input.line_items) ? input.line_items : []
+
+  // If no lines provided but a quotation_id is, copy that quote's items so
+  // the admin doesn't have to retype them.
+  if (line_items.length === 0 && input.quotation_id) {
+    const { data: qItems } = await supabase
+      .from('quotation_items')
+      .select('name, description, qty, unit_price, pricing_mode, percentage')
+      .eq('quotation_id', input.quotation_id)
+      .order('position')
+    if (qItems?.length) {
+      line_items = qItems
+        .filter((it) => it.pricing_mode !== 'percentage')   // skip profit-share lines — they don't have a fixed value
+        .map((it) => ({
+          description: it.name + (it.description ? ` — ${it.description}` : ''),
+          qty: Number(it.qty ?? 1),
+          unit_price: Number(it.unit_price ?? 0),
+          vat_rate,
+        }))
+    }
+  }
+
+  // Last resort: build a single placeholder line from the total.
+  if (line_items.length === 0 && (input.total || input.subtotal)) {
+    const sub = input.subtotal ?? Math.round(((input.total ?? 0) / (1 + vat_rate / 100)) * 100) / 100
+    line_items = [{
+      description: 'Services rendered (auto-extracted — please edit before approving)',
+      qty: 1, unit_price: sub, vat_rate,
+    }]
+  }
+
+  // Compute totals
+  const computedLines = line_items.map((l) => {
+    const subtotal = Number(l.qty ?? 1) * Number(l.unit_price ?? 0)
+    const vat = Math.round(subtotal * Number(l.vat_rate ?? vat_rate)) / 100
+    return { ...l, vat_amount: vat, line_total: subtotal }
+  })
+  const subtotal = computedLines.reduce((s, l) => s + Number(l.line_total ?? 0), 0)
+  const vat_amount = Math.round(subtotal * vat_rate) / 100
+  const total = input.total ?? Math.round((subtotal + vat_amount) * 100) / 100
+
+  const invoice_number = await _nextInvoiceNumber()
+  const row = {
+    client_id: input.client_id ?? null,
+    quotation_id: input.quotation_id ?? null,
+    contract_id: input.contract_id ?? null,
+    receipt_url: input.receipt_url ?? null,
+    invoice_number,
+    issue_date: new Date().toISOString().slice(0, 10),
+    payment_date: input.payment_date ?? null,
+    payment_method: input.payment_method ?? null,
+    payment_reference: input.payment_reference ?? null,
+    customer_name: input.customer_name ?? null,
+    customer_vat: input.customer_vat ?? null,
+    customer_cr: input.customer_cr ?? null,
+    customer_address: input.customer_address ?? null,
+    currency,
+    line_items: computedLines,
+    subtotal,
+    vat_rate,
+    vat_amount,
+    total,
+    notes: input.notes ?? null,
+    status: 'draft',
+  }
+  const { data, error } = await supabase
+    .from('accounting_invoices').insert(row).select('id, invoice_number').single()
+  if (error) throw new Error(`create draft invoice failed: ${error.message}`)
+
+  // Admin-broadcast notification so the bell pings.
+  await supabase.from('notifications').insert({
+    user_id: null,
+    title: `Draft VAT invoice ${data.invoice_number}`,
+    message: `${input.customer_name || 'Client'} — ${total.toLocaleString('en-US')} ${currency} (VAT ${vat_amount.toLocaleString('en-US')}). Review at /accounting/${data.id}.`,
+    type: 'invoice_draft',
+    related_id: data.id,
+    is_read: false,
+  }).catch(() => null)
+
+  await revalidate(['/accounting', '/notifications'])
+  return { id: data.id, invoice_number: data.invoice_number, total, vat_amount, currency }
+}
+
+async function findInvoices(input) {
+  let q = supabase.from('accounting_invoices')
+    .select('id, invoice_number, customer_name, total, vat_amount, currency, status, payment_date, issue_date, created_at')
+    .neq('status', 'void')
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Math.min(200, input.limit ?? 20)))
+  if (input.status) q = q.eq('status', input.status)
+  if (input.client_id) q = q.eq('client_id', input.client_id)
+  if (input.q) q = q.or(`customer_name.ilike.%${input.q}%,invoice_number.ilike.%${input.q}%`)
+  const { data, error } = await q
+  if (error) throw new Error(`find invoices failed: ${error.message}`)
+  return { count: data.length, rows: data }
+}
+
+async function approveInvoiceTool(input) {
+  const id = await _resolveInvoiceId(input.id)
+  if (!id) throw new Error(`invoice not found: ${input.id}`)
+  const { data, error } = await supabase
+    .from('accounting_invoices')
+    .update({ status: 'approved', approved_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('status', 'draft')
+    .select('invoice_number')
+    .single()
+  if (error) throw new Error(`approve failed: ${error.message}`)
+  if (!data) throw new Error('Invoice is not in draft status (already approved/pushed/void).')
+  await revalidate(['/accounting', `/accounting/${id}`])
+  return { approved: true, invoice_number: data.invoice_number, id }
+}
+
+async function pushInvoiceTool(input) {
+  const id = await _resolveInvoiceId(input.id)
+  if (!id) throw new Error(`invoice not found: ${input.id}`)
+  const { data: inv } = await supabase
+    .from('accounting_invoices').select('status, total, currency').eq('id', id).maybeSingle()
+  if (!inv) throw new Error('invoice not found')
+  if (inv.status !== 'approved') throw new Error(`Invoice must be approved first (currently: ${inv.status}).`)
+
+  const { data: settings } = await supabase
+    .from('agency_settings').select('qoyod_api_token_encrypted').eq('id', 'default').maybeSingle()
+  if (!settings?.qoyod_api_token_encrypted) {
+    await supabase.from('accounting_invoices').update({
+      push_error: 'Qoyod API token not configured.',
+    }).eq('id', id)
+    throw new Error('Qoyod API token not configured. Open dashboard Settings → Accounting and paste the access token from Qoyod (Settings → Developers → API). Once it\'s in, retry push.')
+  }
+  // Real push happens once admin loads the token. Returning the gated
+  // error here so the agent reports back to the user faithfully.
+  throw new Error('Qoyod push not yet implemented in the agent — same blocker as the dashboard. Will be enabled the moment the API token + branch/account IDs land in agency_settings.')
+}
+
+// =============================================================================
 // REGISTRY
 // =============================================================================
 
@@ -2274,6 +2443,11 @@ const registry = {
   // agency settings
   get_agency_settings: getAgencySettings,
   update_agency_settings: updateAgencySettings,
+  // accounting (VAT invoices)
+  create_draft_invoice: createDraftInvoice,
+  find_invoices: findInvoices,
+  approve_invoice: approveInvoiceTool,
+  push_invoice: pushInvoiceTool,
   // weekly reports — service-block model
   create_weekly_report: createWeeklyReport,
   find_weekly_report: findWeeklyReport,

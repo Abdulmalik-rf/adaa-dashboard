@@ -1685,6 +1685,101 @@ const weeklyReportTools = [
 ]
 
 // =============================================================================
+// ACCOUNTING / VAT INVOICES — receipt PDF → extracted draft → admin approve →
+// push to Qoyod
+// =============================================================================
+
+const accountingTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'create_draft_invoice',
+      description:
+        "Create a DRAFT VAT invoice in the dashboard's accounting section. Use when the admin forwards a payment receipt PDF and asks you to invoice the client. Workflow: (1) read the receipt's [uploaded_document: …] extracted text to pull vendor name, amount, payment date, reference; (2) optionally find_quotation to grab the original line items; (3) call this tool with the receipt url + extracted fields. Returns the new invoice id + invoice_number. The admin then reviews/edits in the dashboard at /accounting/<id> and clicks Approve, then Push to send it to Qoyod. ONE call per receipt.",
+      parameters: {
+        type: 'object',
+        properties: {
+          client_id: { type: 'string', description: 'Optional. The CRM client this invoice is for. Find via find_client first if the admin named a client.' },
+          quotation_id: { type: 'string', description: 'Optional. The original quotation. If you pass this and omit line_items, the tool copies the quote\'s items.' },
+          contract_id: { type: 'string', description: 'Optional. The signed contract.' },
+          receipt_url: { type: 'string', description: 'Public URL of the receipt PDF (from the [uploaded_document: …] tag on the user message).' },
+          customer_name: { type: 'string', description: 'Customer / counterparty name as it should appear on the VAT invoice.' },
+          customer_vat: { type: 'string', description: 'Customer\'s VAT number if visible on the receipt or known from the client record.' },
+          customer_cr: { type: 'string', description: 'Customer\'s Commercial Registration number if known.' },
+          customer_address: { type: 'string', description: 'Customer address (optional but recommended).' },
+          payment_date: { type: 'string', description: 'ISO date the bank cleared the transfer.' },
+          payment_method: { type: 'string', description: "e.g. 'bank_transfer', 'cash', 'cheque', 'card'." },
+          payment_reference: { type: 'string', description: 'Transaction ID / reference from the bank receipt.' },
+          currency: { type: 'string', description: "ISO code. Default 'SAR'." },
+          vat_rate: { type: 'number', description: 'VAT rate as a percentage. KSA standard is 15.' },
+          line_items: {
+            type: 'array',
+            description: 'Invoice line items. If omitted and quotation_id is set, the tool reuses the quote\'s items. If both are omitted but a total is given, a single placeholder line is generated for the admin to edit.',
+            items: {
+              type: 'object',
+              properties: {
+                description: { type: 'string' },
+                qty: { type: 'number' },
+                unit_price: { type: 'number' },
+                vat_rate: { type: 'number' },
+              },
+              required: ['description'],
+            },
+          },
+          subtotal: { type: 'number', description: 'Sum of line totals before VAT. Computed automatically if line_items are passed; supply when only a flat total is known.' },
+          total: { type: 'number', description: 'Grand total (subtotal + VAT). Useful when the receipt shows only a final figure.' },
+          notes: { type: 'string', description: 'Free-form notes that will appear on the invoice.' },
+        },
+        required: ['customer_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_invoices',
+      description:
+        'List or search accounting invoices. Use to answer "show me the latest invoice", "any drafts pending?", "did we invoice Acme for the May payment?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', description: "Filter by status: 'draft' / 'approved' / 'pushed' / 'failed' / 'void'." },
+          client_id: { type: 'string' },
+          q: { type: 'string', description: 'Fuzzy match against customer_name / invoice_number.' },
+          limit: { type: 'integer', description: 'Default 20.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'approve_invoice',
+      description:
+        'Approve a draft invoice (flips status draft → approved). Admin-only. Does NOT push to Qoyod yet — that\'s a separate step. Use when admin says "approve INV-2026-001" or "yes, looks good — approve it".',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Invoice id (UUID) or invoice_number (e.g. INV-2026-001).' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'push_invoice',
+      description:
+        'Push an APPROVED invoice to the configured accounting system (Qoyod). Will fail with a clear error if no API token is set yet — surface that error to the user verbatim. Admin-only.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Invoice id or invoice_number.' } },
+        required: ['id'],
+      },
+    },
+  },
+]
+
+// =============================================================================
 // AGENCY SETTINGS (one-row config table — agency name, support email, etc.)
 // =============================================================================
 
@@ -2081,6 +2176,7 @@ export const tools = [
   ...clientFileTools,
   ...weeklyReportTools,
   ...settingsTools,
+  ...accountingTools,
   ...powerTools,
   ...devTools,
 ]

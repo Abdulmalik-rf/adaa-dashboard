@@ -69,7 +69,7 @@ export function LoginForm({ signupSuccess }: { signupSuccess?: boolean }) {
           <img
             src="/emergize-logo.png"
             alt="Emergize"
-            className="mx-auto h-14 w-auto object-contain dark:invert"
+            className="mx-auto h-14 w-auto object-contain dark:invert dark:hue-rotate-180"
           />
           <p className="mt-4 text-xs tracking-[0.2em] uppercase font-semibold text-lime-600 dark:text-lime-400">
             Emerge to Dominate

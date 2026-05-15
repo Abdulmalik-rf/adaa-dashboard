@@ -86,15 +86,20 @@ export function Sidebar({ isAdmin = false, currentUser }: { isAdmin?: boolean; c
     <div className={`flex h-full flex-col bg-[hsl(var(--card))] border-${dir === 'rtl' ? 'l' : 'r'} border-[hsl(var(--border))] w-64`}>
       {/* Logo — fills the sidebar width edge-to-edge. The container has
           no fixed height; it derives from the wordmark's natural 1.93:1
-          aspect ratio (256px wide × ~133px tall on a w-64 sidebar). */}
-      <div className="bg-white border-b border-[hsl(var(--border))] flex-shrink-0">
+          aspect ratio (256px wide × ~133px tall on a w-64 sidebar).
+          The logo PNG is black text + green accent on transparent. In
+          dark mode the white card looked like a foreign white block
+          stuck to a black sidebar, so we drop the white in dark mode
+          and apply `invert + hue-rotate-180` to the image — that flips
+          luminosity (black → white) while preserving the brand green. */}
+      <div className="bg-white dark:bg-transparent border-b border-[hsl(var(--border))] flex-shrink-0">
         <Image
           src="/emergize-logo.png"
           alt="Emergize"
           width={400}
           height={208}
           priority
-          className="w-full h-auto block"
+          className="w-full h-auto block dark:invert dark:hue-rotate-180"
         />
       </div>
 

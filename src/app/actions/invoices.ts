@@ -3,6 +3,7 @@
 import { agentSupabase } from '@/lib/chat-agent/supabase'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import * as qoyod from '@/lib/qoyod/client'
 
 // =============================================================================
 // VAT-invoice workflow: payment receipt → draft → admin approval → push to
@@ -237,12 +238,77 @@ export async function voidInvoice(id: string): Promise<{ ok: true } | { ok: fals
 }
 
 // =============================================================================
-// Push to Qoyod — stub until credentials land in agency_settings.
+// Push to Qoyod — full chained implementation.
 //
-// When ready, fill in QOYOD_API_BASE + the access token from agency_settings,
-// map line_items → Qoyod's invoice schema, POST to /api/v1/invoices, capture
-// the returned id + URL, flip status to 'pushed'.
+// On the first push for a client we POST /customers to create the Qoyod
+// contact, cache the returned id on clients.qoyod_customer_id.
+// On the first push for a particular line-item description (normalized
+// via fingerprintDescription) we POST /products to create the Qoyod
+// product, cache the returned id in our qoyod_products mapping table.
+// Then we POST /invoices with the resolved contact_id + product_ids,
+// and (if the receipt indicated payment) we also POST /invoice_payments
+// against the configured payment account.
 // =============================================================================
+
+async function ensureQoyodCustomer(apiKey: string, clientId: string | null): Promise<number | null> {
+  if (!clientId) return null
+  const { data: c } = await sb()
+    .from('clients')
+    .select('id, qoyod_customer_id, company_name, full_name, email, phone, whatsapp, city')
+    .eq('id', clientId)
+    .maybeSingle()
+  if (!c) return null
+  if ((c as any).qoyod_customer_id) return (c as any).qoyod_customer_id
+  const created = await qoyod.createCustomer(apiKey, {
+    customer: {
+      name: (c as any).company_name || (c as any).full_name || 'Client',
+      email: (c as any).email || undefined,
+      phone: (c as any).whatsapp || (c as any).phone || undefined,
+      address: (c as any).city || undefined,
+      contact_type: 'organization',
+    },
+  })
+  const qid = created.customer.id
+  try { await sb().from('clients').update({ qoyod_customer_id: qid }).eq('id', clientId) } catch { /* best-effort cache */ }
+  return qid
+}
+
+async function ensureQoyodProduct(
+  apiKey: string,
+  description: string,
+  unit_price: number,
+  vat_rate: number,
+): Promise<number> {
+  const fingerprint = qoyod.fingerprintDescription(description) || 'misc-service'
+  const { data: existing } = await sb()
+    .from('qoyod_products')
+    .select('qoyod_product_id')
+    .eq('fingerprint', fingerprint)
+    .maybeSingle()
+  if ((existing as any)?.qoyod_product_id) return (existing as any).qoyod_product_id
+
+  const created = await qoyod.createProduct(apiKey, {
+    product: {
+      name_en: description.slice(0, 120),
+      name_ar: description.slice(0, 120),
+      description: description,
+      unit_price,
+      tax_percent: vat_rate,
+      product_type: 'service',
+    },
+  })
+  const pid = created.product.id
+  try {
+    await sb().from('qoyod_products').insert({
+      fingerprint,
+      description,
+      qoyod_product_id: pid,
+      default_unit_price: unit_price,
+    })
+  } catch { /* best-effort cache */ }
+  return pid
+}
+
 export async function pushInvoiceToQoyod(id: string): Promise<
   { ok: true; external_id: string; external_url?: string } | { ok: false; error: string }
 > {
@@ -262,35 +328,160 @@ export async function pushInvoiceToQoyod(id: string): Promise<
 
     const { data: settings } = await sb()
       .from('agency_settings')
-      .select('qoyod_api_token_encrypted, qoyod_account_id')
+      .select('qoyod_api_key, qoyod_default_inventory_id, qoyod_default_payment_account')
       .eq('id', 'default')
       .maybeSingle()
-    const token = (settings as any)?.qoyod_api_token_encrypted
+    const apiKey = (settings as any)?.qoyod_api_key
 
-    if (!token) {
-      // Mark the attempt so the dashboard shows "credentials missing"
+    if (!apiKey) {
       await sb()
         .from('accounting_invoices')
-        .update({ push_error: 'Qoyod API token not configured in Settings → Accounting.' })
+        .update({ push_error: 'Qoyod API key not configured in Settings → Accounting.' })
         .eq('id', id)
       revalidatePath('/accounting')
-      return { ok: false, error: 'Qoyod API token not configured. Go to Settings → Accounting and paste the access token from Qoyod (Settings → Developers → API).' }
+      return { ok: false, error: 'Qoyod API key not configured. Open Settings → Accounting and paste the API key from your Qoyod dashboard (Settings → API). Then retry push.' }
     }
 
-    // === Real Qoyod push lands here once credentials arrive ===
-    // const res = await fetch('https://www.qoyod.com/api/v1/invoices', {
-    //   method: 'POST',
-    //   headers: {
-    //     'Authorization': `Bearer ${token}`,
-    //     'API-VERSION': '3.0',
-    //     'Content-Type': 'application/json',
-    //   },
-    //   body: JSON.stringify(mapToQoyodInvoice(inv)),
-    // })
-    // ...
+    const inventory_id = (settings as any)?.qoyod_default_inventory_id ?? undefined
+    const payment_account = (settings as any)?.qoyod_default_payment_account ?? null
 
-    return { ok: false, error: 'Qoyod push not yet implemented — leave this turn open until you share the API token + chart-of-accounts IDs.' }
+    try {
+      // 1. Ensure customer exists in Qoyod
+      const contact_id = await ensureQoyodCustomer(apiKey, (inv as any).client_id)
+      if (!contact_id) {
+        throw new Error('Cannot resolve Qoyod customer — invoice has no client_id and no customer_name to create from. Edit the invoice and attach a CRM client first.')
+      }
+
+      // 2. Ensure each line item has a Qoyod product id
+      const lineItems = Array.isArray((inv as any).line_items) ? (inv as any).line_items : []
+      const vat_rate = Number((inv as any).vat_rate ?? 15)
+      const qoyodLines: qoyod.QoyodInvoiceLine[] = []
+      for (const line of lineItems) {
+        const desc = String(line.description || 'Service')
+        const unit_price = Number(line.unit_price ?? 0)
+        const product_id = await ensureQoyodProduct(apiKey, desc, unit_price, vat_rate)
+        qoyodLines.push({
+          product_id,
+          description: desc,
+          quantity: Number(line.qty ?? 1),
+          unit_price,
+          tax_percent: Number(line.vat_rate ?? vat_rate),
+        })
+      }
+      if (qoyodLines.length === 0) {
+        throw new Error('Invoice has no line items — add at least one before pushing.')
+      }
+
+      // 3. POST /invoices
+      const created = await qoyod.createInvoice(apiKey, {
+        invoice: {
+          contact_id,
+          reference: (inv as any).invoice_number,
+          description: (inv as any).notes || undefined,
+          issue_date: (inv as any).issue_date,
+          due_date: (inv as any).issue_date,
+          status: 'Approved',
+          inventory_id,
+          line_items: qoyodLines,
+        },
+      })
+
+      // 4. If we have a payment_date + payment account, record the payment too
+      let paymentNoted = false
+      if ((inv as any).payment_date && payment_account) {
+        try {
+          await qoyod.createInvoicePayment(apiKey, {
+            invoice_payment: {
+              reference: (inv as any).payment_reference || `pay-${created.invoice.id}`,
+              invoice_id: created.invoice.id,
+              account_id: payment_account,
+              date: (inv as any).payment_date,
+              amount: String((inv as any).total ?? 0),
+              payment_method: (inv as any).payment_method || undefined,
+            },
+          })
+          paymentNoted = true
+        } catch (payErr: any) {
+          // Don't fail the whole push just because the payment record didn't
+          // land. The invoice itself is the critical artifact.
+          console.warn('[qoyod] payment record failed:', payErr?.message)
+        }
+      }
+
+      // 5. Flip status, store the external id
+      const externalUrl = `https://www.qoyod.com/invoices/${created.invoice.id}`
+      await sb()
+        .from('accounting_invoices')
+        .update({
+          status: 'pushed',
+          external_system: 'qoyod',
+          external_id: String(created.invoice.id),
+          external_url: externalUrl,
+          external_pushed_at: new Date().toISOString(),
+          push_error: null,
+        })
+        .eq('id', id)
+
+      revalidatePath('/accounting')
+      revalidatePath(`/accounting/${id}`)
+      return { ok: true, external_id: String(created.invoice.id), external_url: externalUrl }
+    } catch (pushErr: any) {
+      const msg = pushErr?.message ?? 'Unexpected error'
+      await sb()
+        .from('accounting_invoices')
+        .update({ status: 'failed', push_error: msg })
+        .eq('id', id)
+      revalidatePath('/accounting')
+      revalidatePath(`/accounting/${id}`)
+      return { ok: false, error: msg }
+    }
   } catch (err: any) {
     return { ok: false, error: err?.message ?? 'Unexpected error' }
+  }
+}
+
+// =============================================================================
+// Qoyod settings helpers — used by the Settings page form
+// =============================================================================
+export async function saveQoyodConfig(formData: FormData): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const me = await getCurrentUser()
+    if (me?.profile?.role !== 'admin') return { ok: false, error: 'Admin only.' }
+    const patch: Record<string, any> = {}
+    const apiKey = String(formData.get('qoyod_api_key') ?? '').trim()
+    if (apiKey) patch.qoyod_api_key = apiKey
+    for (const k of ['qoyod_default_inventory_id', 'qoyod_default_revenue_account', 'qoyod_default_payment_account']) {
+      const raw = String(formData.get(k) ?? '').trim()
+      if (raw) patch[k] = Number(raw)
+    }
+    const orgName = String(formData.get('qoyod_org_name') ?? '').trim()
+    if (orgName) patch.qoyod_org_name = orgName
+    if (Object.keys(patch).length === 0) return { ok: false, error: 'Nothing to save.' }
+    const { error } = await sb().from('agency_settings').update(patch).eq('id', 'default')
+    if (error) return { ok: false, error: error.message }
+    revalidatePath('/settings')
+    revalidatePath('/accounting')
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Unexpected error' }
+  }
+}
+
+export async function testQoyodConnection(): Promise<
+  { ok: true; accounts: number; inventories?: number } | { ok: false; error: string }
+> {
+  const me = await getCurrentUser()
+  if (me?.profile?.role !== 'admin') return { ok: false, error: 'Admin only.' }
+  const { data: settings } = await sb()
+    .from('agency_settings').select('qoyod_api_key').eq('id', 'default').maybeSingle()
+  const key = (settings as any)?.qoyod_api_key
+  if (!key) return { ok: false, error: 'No Qoyod API key saved yet.' }
+  const probe = await qoyod.ping(key)
+  if (!probe.ok) return { ok: false, error: probe.error }
+  try {
+    const inv = await qoyod.listInventories(key)
+    return { ok: true, accounts: probe.accounts, inventories: inv.inventories?.length ?? 0 }
+  } catch {
+    return { ok: true, accounts: probe.accounts }
   }
 }

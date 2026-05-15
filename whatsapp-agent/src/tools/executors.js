@@ -2327,25 +2327,180 @@ async function approveInvoiceTool(input) {
   return { approved: true, invoice_number: data.invoice_number, id }
 }
 
+// Low-level Qoyod fetch — mirrors src/lib/qoyod/client.ts. Kept inline
+// here so the agent doesn't have to import the dashboard's TS modules.
+const QOYOD_BASE = 'https://api.qoyod.com/2.0'
+async function _qoyodRequest(apiKey, method, path, body) {
+  const res = await fetch(`${QOYOD_BASE}${path}`, {
+    method,
+    headers: {
+      'API-KEY': apiKey,
+      Accept: 'application/json',
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  const text = await res.text()
+  let parsed = null
+  try { parsed = text ? JSON.parse(text) : null } catch { /* ignore */ }
+  if (!res.ok) {
+    const detail = (parsed && (parsed.error || parsed.errors || parsed.message)) || text.slice(0, 300)
+    throw new Error(`Qoyod ${res.status} ${method} ${path}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`)
+  }
+  return parsed
+}
+
+function _fingerprintDesc(s) {
+  if (!s) return ''
+  return String(s).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ').replace(/[^\p{L}\p{N} ]/gu, '').trim().slice(0, 200)
+}
+
+async function _ensureQoyodCustomer(apiKey, clientId) {
+  if (!clientId) return null
+  const { data: c } = await supabase
+    .from('clients')
+    .select('id, qoyod_customer_id, company_name, full_name, email, phone, whatsapp, city')
+    .eq('id', clientId).maybeSingle()
+  if (!c) return null
+  if (c.qoyod_customer_id) return c.qoyod_customer_id
+  const r = await _qoyodRequest(apiKey, 'POST', '/customers', {
+    customer: {
+      name: c.company_name || c.full_name || 'Client',
+      email: c.email || undefined,
+      phone: c.whatsapp || c.phone || undefined,
+      address: c.city || undefined,
+      contact_type: 'organization',
+    },
+  })
+  const qid = r?.customer?.id
+  if (qid) await supabase.from('clients').update({ qoyod_customer_id: qid }).eq('id', clientId).catch(() => null)
+  return qid
+}
+
+async function _ensureQoyodProduct(apiKey, description, unit_price, vat_rate) {
+  const fingerprint = _fingerprintDesc(description) || 'misc-service'
+  const { data: existing } = await supabase
+    .from('qoyod_products').select('qoyod_product_id').eq('fingerprint', fingerprint).maybeSingle()
+  if (existing?.qoyod_product_id) return existing.qoyod_product_id
+  const r = await _qoyodRequest(apiKey, 'POST', '/products', {
+    product: {
+      name_en: description.slice(0, 120),
+      name_ar: description.slice(0, 120),
+      description,
+      unit_price,
+      tax_percent: vat_rate,
+      product_type: 'service',
+    },
+  })
+  const pid = r?.product?.id
+  if (pid) {
+    await supabase.from('qoyod_products').insert({
+      fingerprint, description, qoyod_product_id: pid, default_unit_price: unit_price,
+    }).catch(() => null)
+  }
+  return pid
+}
+
 async function pushInvoiceTool(input) {
   const id = await _resolveInvoiceId(input.id)
   if (!id) throw new Error(`invoice not found: ${input.id}`)
+
   const { data: inv } = await supabase
-    .from('accounting_invoices').select('status, total, currency').eq('id', id).maybeSingle()
+    .from('accounting_invoices').select('*').eq('id', id).maybeSingle()
   if (!inv) throw new Error('invoice not found')
-  if (inv.status !== 'approved') throw new Error(`Invoice must be approved first (currently: ${inv.status}).`)
+  if (inv.status !== 'approved') {
+    throw new Error(`Invoice must be approved first (currently: ${inv.status}).`)
+  }
 
   const { data: settings } = await supabase
-    .from('agency_settings').select('qoyod_api_token_encrypted').eq('id', 'default').maybeSingle()
-  if (!settings?.qoyod_api_token_encrypted) {
+    .from('agency_settings')
+    .select('qoyod_api_key, qoyod_default_inventory_id, qoyod_default_payment_account')
+    .eq('id', 'default').maybeSingle()
+  const apiKey = settings?.qoyod_api_key
+
+  if (!apiKey) {
     await supabase.from('accounting_invoices').update({
-      push_error: 'Qoyod API token not configured.',
+      push_error: 'Qoyod API key not configured.',
     }).eq('id', id)
-    throw new Error('Qoyod API token not configured. Open dashboard Settings → Accounting and paste the access token from Qoyod (Settings → Developers → API). Once it\'s in, retry push.')
+    throw new Error('Qoyod API key not set. Open the dashboard → Settings → Accounting (قيود) and paste the API key from your Qoyod account. Then retry push.')
   }
-  // Real push happens once admin loads the token. Returning the gated
-  // error here so the agent reports back to the user faithfully.
-  throw new Error('Qoyod push not yet implemented in the agent — same blocker as the dashboard. Will be enabled the moment the API token + branch/account IDs land in agency_settings.')
+
+  try {
+    const contact_id = await _ensureQoyodCustomer(apiKey, inv.client_id)
+    if (!contact_id) throw new Error('No client_id on invoice — link a CRM client first.')
+
+    const vat_rate = Number(inv.vat_rate ?? 15)
+    const lines = Array.isArray(inv.line_items) ? inv.line_items : []
+    if (lines.length === 0) throw new Error('Invoice has no line items.')
+    const qoyodLines = []
+    for (const l of lines) {
+      const desc = String(l.description || 'Service')
+      const unit_price = Number(l.unit_price ?? 0)
+      const product_id = await _ensureQoyodProduct(apiKey, desc, unit_price, vat_rate)
+      qoyodLines.push({
+        product_id,
+        description: desc,
+        quantity: Number(l.qty ?? 1),
+        unit_price,
+        tax_percent: Number(l.vat_rate ?? vat_rate),
+      })
+    }
+
+    const created = await _qoyodRequest(apiKey, 'POST', '/invoices', {
+      invoice: {
+        contact_id,
+        reference: inv.invoice_number,
+        description: inv.notes || undefined,
+        issue_date: inv.issue_date,
+        due_date: inv.issue_date,
+        status: 'Approved',
+        inventory_id: settings?.qoyod_default_inventory_id ?? undefined,
+        line_items: qoyodLines,
+      },
+    })
+
+    if (inv.payment_date && settings?.qoyod_default_payment_account) {
+      try {
+        await _qoyodRequest(apiKey, 'POST', '/invoice_payments', {
+          invoice_payment: {
+            reference: inv.payment_reference || `pay-${created.invoice.id}`,
+            invoice_id: created.invoice.id,
+            account_id: settings.qoyod_default_payment_account,
+            date: inv.payment_date,
+            amount: String(inv.total ?? 0),
+            payment_method: inv.payment_method || undefined,
+          },
+        })
+      } catch (payErr) {
+        console.warn('[qoyod] payment record failed:', payErr?.message)
+      }
+    }
+
+    const externalUrl = `https://www.qoyod.com/invoices/${created.invoice.id}`
+    await supabase.from('accounting_invoices').update({
+      status: 'pushed',
+      external_system: 'qoyod',
+      external_id: String(created.invoice.id),
+      external_url: externalUrl,
+      external_pushed_at: new Date().toISOString(),
+      push_error: null,
+    }).eq('id', id)
+
+    await revalidate(['/accounting', `/accounting/${id}`])
+    return {
+      pushed: true,
+      invoice_number: inv.invoice_number,
+      qoyod_invoice_id: created.invoice.id,
+      qoyod_url: externalUrl,
+    }
+  } catch (err) {
+    const msg = err?.message ?? 'unknown error'
+    await supabase.from('accounting_invoices').update({
+      status: 'failed', push_error: msg,
+    }).eq('id', id)
+    throw new Error(msg)
+  }
 }
 
 // =============================================================================

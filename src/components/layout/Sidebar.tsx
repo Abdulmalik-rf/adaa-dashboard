@@ -6,7 +6,7 @@ import Image from 'next/image'
 import {
   LayoutDashboard, Users, FileText, Bell, Folder, Settings,
   CheckSquare, Menu, X, CalendarDays, Image as ImageIcon, Activity,
-  BarChart3, MessageSquare, Sparkles, FileBarChart2, UserPlus
+  BarChart3, MessageSquare, Sparkles, FileBarChart2, UserPlus, Briefcase
 } from 'lucide-react'
 import { useState } from 'react'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -65,6 +65,7 @@ export function Sidebar({ isAdmin = false, currentUser }: { isAdmin?: boolean; c
 
   const navBottom = [
     { name: t.team, href: '/team', icon: Users, adminOnly: true },
+    { name: (t as any).hrNav ?? 'HR', href: '/hr', icon: Briefcase, adminOnly: true },
     { name: t.contracts, href: '/contracts', icon: FileText, adminOnly: true },
     { name: (t as any).quotationsManagement ?? 'Quotations', href: '/quotations', icon: FileText, adminOnly: true },
     { name: (t as any).weeklyReports ?? 'Weekly Reports', href: '/reports', icon: FileBarChart2 },

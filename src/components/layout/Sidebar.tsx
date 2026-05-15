@@ -6,7 +6,7 @@ import Image from 'next/image'
 import {
   LayoutDashboard, Users, FileText, Bell, Folder, Settings,
   CheckSquare, Menu, X, CalendarDays, Image as ImageIcon, Activity,
-  BarChart3, MessageSquare, Sparkles, FileBarChart2
+  BarChart3, MessageSquare, Sparkles, FileBarChart2, UserPlus
 } from 'lucide-react'
 import { useState } from 'react'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -58,6 +58,7 @@ export function Sidebar({ isAdmin = false, currentUser }: { isAdmin?: boolean; c
     { name: t.myWorkspace, href: '/my-dashboard', icon: Sparkles },
     { name: t.finance, href: '/finance', icon: BarChart3, adminOnly: true },
     { name: t.clients, href: '/clients', icon: Users, adminOnly: true },
+    { name: (t as any).leadsNav ?? 'Leads', href: '/leads', icon: UserPlus, adminOnly: true },
     { name: t.tasks, href: '/tasks', icon: CheckSquare, adminOnly: true },
     { name: t.myTasks, href: '/my-tasks', icon: Bell },
   ].filter((item) => isAdmin || !item.adminOnly)

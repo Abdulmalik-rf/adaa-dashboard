@@ -347,6 +347,91 @@ export async function updateClientStatus(id: string, status: string) {
   if (error) throw new Error("Failed")
   revalidatePath(`/clients/${id}`)
   revalidatePath('/clients')
+  revalidatePath('/leads')
+}
+
+// =============================================================================
+// LEAD-SPECIFIC ACTIONS
+// =============================================================================
+// Leads are clients with status IN ('to_contact','lead'). They live on the
+// dedicated /leads page so the main /clients view stays focused on signed
+// accounts. These helpers cover the common per-row actions.
+
+// Stamp last_contacted_at to now. Also bumps to_contact → lead so the
+// pipeline reflects "first touch made". Optionally appends a note about
+// the channel + a one-line summary so the contact history is auditable
+// without leaving WhatsApp.
+export async function markLeadContacted(
+  id: string,
+  channel?: 'whatsapp' | 'email' | 'phone' | 'meeting',
+  note?: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { data: existing } = await (supabaseClient as any)
+      .from('clients')
+      .select('status')
+      .eq('id', id)
+      .maybeSingle()
+    const patch: Record<string, any> = { last_contacted_at: new Date().toISOString() }
+    if (existing?.status === 'to_contact') patch.status = 'lead'
+
+    const { error } = await (supabaseClient as any).from('clients').update(patch).eq('id', id)
+    if (error) return { ok: false, error: error.message }
+
+    if (channel) {
+      await (supabaseClient as any).from('communication_logs').insert({
+        client_id: id,
+        type: channel,
+        summary: note?.trim() || `Marked as contacted via ${channel}.`,
+        notes: null,
+        date: new Date().toISOString(),
+      }).catch((e: any) => console.warn('[markLeadContacted] log insert failed:', e?.message))
+    }
+
+    revalidatePath('/leads')
+    revalidatePath('/clients')
+    revalidatePath(`/clients/${id}`)
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Unexpected error' }
+  }
+}
+
+// Promotes a lead to a signed client by flipping status → 'active'. Useful
+// the moment a lead converts. Does NOT create a contract — the user adds
+// that separately (the /clients/[id] workspace has an "Add contract" CTA).
+export async function promoteLeadToClient(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { error } = await (supabaseClient as any)
+      .from('clients')
+      .update({ status: 'active' })
+      .eq('id', id)
+    if (error) return { ok: false, error: error.message }
+    revalidatePath('/leads')
+    revalidatePath('/clients')
+    revalidatePath(`/clients/${id}`)
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Unexpected error' }
+  }
+}
+
+// Pushes a lead BACK to the leads pipeline (e.g. an "active" client was
+// misclassified and should still be in outreach mode). Inverse of promote.
+export async function demoteToLead(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { error } = await (supabaseClient as any)
+      .from('clients')
+      .update({ status: 'lead' })
+      .eq('id', id)
+    if (error) return { ok: false, error: error.message }
+    revalidatePath('/leads')
+    revalidatePath('/clients')
+    revalidatePath(`/clients/${id}`)
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Unexpected error' }
+  }
 }
 
 // Free-form note attached to a client. Backed by communication_logs with

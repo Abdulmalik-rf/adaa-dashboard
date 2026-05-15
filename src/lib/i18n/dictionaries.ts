@@ -176,6 +176,7 @@ export const dictionaries = {
     roleManager: "Manager",
     roleStaff: "Staff",
     roleUser: "User",
+    leadsNav: "Leads",
     // Notifications
     notificationsHeader: "Notifications",
     unread: "unread",
@@ -362,6 +363,7 @@ export const dictionaries = {
     roleManager: "مدير",
     roleStaff: "موظف",
     roleUser: "مستخدم",
+    leadsNav: "العملاء المحتملون",
     // Notifications
     notificationsHeader: "الإشعارات",
     unread: "غير مقروءة",

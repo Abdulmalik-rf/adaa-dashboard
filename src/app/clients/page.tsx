@@ -71,13 +71,16 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const locale = (await cookies()).get('locale')?.value === 'ar' ? 'ar' : 'en'
   const t = T[locale]
 
+  // EXCLUDE lead-stage rows — they live on /leads now. Anything with
+  // status IN ('to_contact','lead') is a prospect, not a signed client,
+  // and this page is the signed-client portfolio.
   const [
     { data: clients },
     { data: contracts },
     { data: tasks },
     { data: contentItems },
   ] = await Promise.all([
-    (supabaseClient as any).from('clients').select('*, client_services(service_name)').order('created_at', { ascending: false }),
+    (supabaseClient as any).from('clients').select('*, client_services(service_name)').not('status', 'in', '("to_contact","lead")').order('created_at', { ascending: false }),
     (supabaseClient as any).from('contracts').select('*'),
     (supabaseClient as any).from('tasks').select('id, client_id, status, due_date, priority'),
     (supabaseClient as any).from('content_items').select('id, client_id, platform, schedule_status'),
@@ -161,7 +164,8 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
     inactive: t.filterInactive,
   }
 
-  const statuses = ['all', 'to_contact', 'lead', 'active', 'paused', 'inactive']
+  // Lead-stage statuses removed — they live on /leads now.
+  const statuses = ['all', 'active', 'paused', 'inactive']
 
   return (
     <div className="space-y-6 pb-10">

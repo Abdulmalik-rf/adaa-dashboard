@@ -2976,6 +2976,1107 @@ async function pushBillTool(input) {
 }
 
 // =============================================================================
+// HR — leave + attendance + payroll + EOSB + onboarding + CV intake + letters
+// + documents. F1–F13.
+// =============================================================================
+
+// Resolve the team_member row for whoever DM'd the agent. JID looks like
+// "<digits>@s.whatsapp.net" or "<lid>@lid". The team_members.whatsapp column
+// is a free-form phone string — strip non-digits and try a prefix/suffix
+// match.
+async function _resolveEmployeeFromSender(ctxOverride = null) {
+  const ctx = ctxOverride ?? getRequest()
+  if (!ctx?.senderJid) return null
+  const digits = String(ctx.senderJid).split('@')[0].replace(/\D/g, '')
+  if (!digits) return null
+
+  // Try exact, then suffix (last 9 digits is enough to be unique in KSA).
+  const tail = digits.slice(-9)
+  const { data } = await supabase
+    .from('team_members')
+    .select('id, full_name, role, job_title, status, whatsapp, phone, base_salary, salary_currency, employment_type, gosi_subject, hire_date, annual_leave_balance')
+    .eq('status', 'active')
+  for (const e of (data ?? [])) {
+    const wa = String(e.whatsapp || '').replace(/\D/g, '')
+    const ph = String(e.phone || '').replace(/\D/g, '')
+    if (wa && (wa.endsWith(tail) || tail.endsWith(wa.slice(-9)))) return e
+    if (ph && (ph.endsWith(tail) || tail.endsWith(ph.slice(-9)))) return e
+  }
+  return null
+}
+
+async function _resolveEmployeeIdByNameOrId(input) {
+  if (input.employee_id) return input.employee_id
+  if (input.employee_name) {
+    const id = await findOneTeamMemberIdByName(input.employee_name)
+    return id ?? null
+  }
+  return null
+}
+
+function _daysBetween(a, b) {
+  const ad = new Date(a + 'T00:00:00Z').getTime()
+  const bd = new Date(b + 'T00:00:00Z').getTime()
+  if (Number.isNaN(ad) || Number.isNaN(bd)) return 0
+  return Math.floor((bd - ad) / 86_400_000) + 1
+}
+
+// ---- F2 + F3: leave + conflict detector --------------------------------------
+
+async function _checkLeaveConflicts(start_date, end_date, employee_id) {
+  // 1. Other team members on leave overlapping
+  const { data: overlap } = await supabase
+    .from('leave_requests')
+    .select('id, employee_id, type, start_date, end_date, status, team_members:employee_id (full_name)')
+    .in('status', ['approved', 'pending'])
+    .lte('start_date', end_date)
+    .gte('end_date', start_date)
+  const overlapping = (overlap ?? [])
+    .filter((r) => r.employee_id !== employee_id)
+    .map((r) => ({
+      employee_id: r.employee_id,
+      employee_name: r.team_members?.full_name ?? '—',
+      type: r.type,
+      start_date: r.start_date,
+      end_date: r.end_date,
+      status: r.status,
+    }))
+
+  // 2. Tasks due in the window assigned to this employee
+  let tasksDue = []
+  if (employee_id) {
+    const { data: tasks } = await supabase
+      .from('tasks')
+      .select('id, title, due_date, status, priority, clients:client_id (company_name)')
+      .eq('assignee_id', employee_id)
+      .gte('due_date', start_date)
+      .lte('due_date', end_date)
+      .neq('status', 'completed')
+    tasksDue = (tasks ?? []).map((t) => ({
+      id: t.id,
+      title: t.title,
+      due_date: t.due_date,
+      status: t.status,
+      priority: t.priority,
+      client: t.clients?.company_name ?? null,
+    }))
+  }
+
+  // 3. Weekly reports the employee is on the hook for, due in window
+  let reportsDue = []
+  if (employee_id) {
+    try {
+      const { data: reps } = await supabase
+        .from('weekly_reports')
+        .select('id, period_start, period_end, customer_company, assignee_id')
+        .eq('assignee_id', employee_id)
+        .gte('period_end', start_date)
+        .lte('period_end', end_date)
+      reportsDue = (reps ?? []).map((r) => ({
+        id: r.id, customer: r.customer_company, period_end: r.period_end,
+      }))
+    } catch {
+      // weekly_reports.assignee_id may not exist on every project — silently skip
+    }
+  }
+
+  // Score
+  let level = 'low'
+  if (tasksDue.some((t) => t.priority === 'urgent' || t.priority === 'high')) level = 'high'
+  else if (tasksDue.length > 0 || reportsDue.length > 0) level = 'medium'
+  if (overlapping.filter((o) => o.status === 'approved').length >= 2) {
+    level = level === 'high' ? 'high' : 'medium'
+  }
+
+  return { level, overlapping, tasksDue, reportsDue }
+}
+
+async function requestLeaveForSelfTool(input) {
+  let employee = null
+  let employeeId = input.override_employee_id ?? null
+  if (employeeId) {
+    const { data } = await supabase
+      .from('team_members').select('id, full_name, whatsapp, base_salary, annual_leave_balance')
+      .eq('id', employeeId).maybeSingle()
+    employee = data ?? null
+  } else {
+    employee = await _resolveEmployeeFromSender()
+    if (employee) employeeId = employee.id
+  }
+  if (!employee) {
+    throw new Error("Couldn't resolve which team member you are. The admin needs to add your WhatsApp number to your team_members row first.")
+  }
+
+  const start = String(input.start_date)
+  const end = String(input.end_date)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    throw new Error('start_date and end_date must be ISO YYYY-MM-DD.')
+  }
+  const days = _daysBetween(start, end)
+  if (days < 1) throw new Error('end_date must be on or after start_date.')
+
+  const type = input.type || 'annual'
+  const balance = Number(employee.annual_leave_balance ?? 21)
+  let balanceWarning = ''
+  if (type === 'annual' && days > balance) {
+    balanceWarning = `\n⚠ Requested ${days} days but annual balance is only ${balance}. ${days - balance} day(s) would need to be unpaid.`
+  }
+
+  const { data: leave, error } = await supabase
+    .from('leave_requests')
+    .insert({
+      employee_id: employeeId,
+      type, start_date: start, end_date: end, days,
+      status: 'pending',
+      reason: input.reason ?? null,
+    })
+    .select('id').single()
+  if (error) throw new Error(`Create leave request failed: ${error.message}`)
+
+  // Conflict summary
+  const conflict = await _checkLeaveConflicts(start, end, employeeId)
+
+  // Build admin DM
+  const overlapBlock = conflict.overlapping.length
+    ? conflict.overlapping.map((o) => `   • ${o.employee_name} (${o.type}, ${o.start_date}→${o.end_date}, ${o.status})`).join('\n')
+    : '   None'
+  const tasksBlock = conflict.tasksDue.length
+    ? conflict.tasksDue.map((t) => `   • ${t.priority?.toUpperCase() ?? '—'}: "${t.title}" due ${t.due_date}${t.client ? ` (${t.client})` : ''}`).join('\n')
+    : '   None in window'
+  const reportsBlock = conflict.reportsDue.length
+    ? conflict.reportsDue.map((r) => `   • ${r.customer} weekly report period_end ${r.period_end}`).join('\n')
+    : '   None'
+  const riskEmoji = conflict.level === 'high' ? '🚨' : conflict.level === 'medium' ? '⚠️' : 'ℹ️'
+
+  const adminText =
+    `🏖 NEW LEAVE REQUEST\n\n` +
+    `Employee: ${employee.full_name}\n` +
+    `Type: ${type}\n` +
+    `Dates: ${start} → ${end} (${days} day${days === 1 ? '' : 's'})\n` +
+    `Reason: ${input.reason || '—'}\n` +
+    `Annual balance: ${balance} days${balanceWarning}\n\n` +
+    `${riskEmoji} Conflict risk: ${conflict.level.toUpperCase()}\n\n` +
+    `Others on leave that week:\n${overlapBlock}\n\n` +
+    `${employee.full_name}'s tasks due in window:\n${tasksBlock}\n\n` +
+    `Weekly reports due:\n${reportsBlock}\n\n` +
+    `Reply "approve ${leave.id.slice(0,8)}" or "reject ${leave.id.slice(0,8)} <reason>" to act.`
+
+  // Drop a notification (the dashboard bell) — agent will broadcast over WA
+  // separately when admin DMs the bot. Here we use the existing notifications
+  // pipeline so the dashboard view also shows it.
+  await supabase.from('notifications').insert({
+    user_id: null,
+    title: `Leave request: ${employee.full_name}`,
+    message: adminText.slice(0, 800),
+    type: 'leave_pending_review',
+    related_id: leave.id,
+    is_read: false,
+  }).catch(() => null)
+
+  await revalidate(['/hr', '/notifications'])
+  return {
+    leave_id: leave.id,
+    employee_name: employee.full_name,
+    days, type, start, end,
+    conflict_level: conflict.level,
+    conflicts_overlapping: conflict.overlapping.length,
+    conflicts_tasks: conflict.tasksDue.length,
+    admin_card: adminText,
+  }
+}
+
+async function findLeaveRequestsTool(input) {
+  let q = supabase.from('leave_requests')
+    .select('id, employee_id, type, start_date, end_date, days, status, reason, decision_note, created_at, team_members:employee_id (full_name)')
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Math.min(200, input.limit ?? 10)))
+  if (input.status) q = q.eq('status', input.status)
+  if (input.employee_id) q = q.eq('employee_id', input.employee_id)
+  if (input.from_date) q = q.gte('start_date', input.from_date)
+  if (input.to_date) q = q.lte('end_date', input.to_date)
+  if (input.employee_name) {
+    const id = await findOneTeamMemberIdByName(input.employee_name)
+    if (id) q = q.eq('employee_id', id)
+  }
+  const { data, error } = await q
+  if (error) throw new Error(`find leave requests failed: ${error.message}`)
+  return {
+    count: data.length,
+    rows: data.map((r) => ({ ...r, employee_name: r.team_members?.full_name })),
+  }
+}
+
+async function approveLeaveTool(input) {
+  const { data: leave } = await supabase
+    .from('leave_requests')
+    .select('id, employee_id, type, days, status')
+    .eq('id', input.id).maybeSingle()
+  if (!leave) throw new Error('leave_requests row not found')
+  if (leave.status !== 'pending') throw new Error(`Cannot approve — current status is ${leave.status}.`)
+
+  const { error } = await supabase
+    .from('leave_requests')
+    .update({ status: 'approved', decided_at: new Date().toISOString(), decision_note: input.decision_note ?? null })
+    .eq('id', input.id).eq('status', 'pending')
+  if (error) throw new Error(`approve failed: ${error.message}`)
+
+  // Decrement annual_leave_balance only for type='annual'
+  if (leave.type === 'annual') {
+    const { data: emp } = await supabase
+      .from('team_members').select('annual_leave_balance').eq('id', leave.employee_id).maybeSingle()
+    const current = Number(emp?.annual_leave_balance ?? 21)
+    await supabase.from('team_members')
+      .update({ annual_leave_balance: Math.max(0, current - Number(leave.days ?? 0)) })
+      .eq('id', leave.employee_id)
+      .catch(() => null)
+  }
+  await revalidate(['/hr'])
+  return { approved: true, id: input.id }
+}
+
+async function rejectLeaveTool(input) {
+  if (!input.decision_note) throw new Error('decision_note is required.')
+  const { error } = await supabase
+    .from('leave_requests')
+    .update({ status: 'rejected', decided_at: new Date().toISOString(), decision_note: input.decision_note })
+    .eq('id', input.id).eq('status', 'pending')
+  if (error) throw new Error(`reject failed: ${error.message}`)
+  await revalidate(['/hr'])
+  return { rejected: true, id: input.id }
+}
+
+async function checkLeaveConflictsTool(input) {
+  let empId = input.employee_id ?? null
+  if (!empId && input.employee_name) empId = await findOneTeamMemberIdByName(input.employee_name)
+  return await _checkLeaveConflicts(input.start_date, input.end_date, empId)
+}
+
+// ---- F4 + F5: payroll + EOSB --------------------------------------------------
+
+function _eosbForYears(monthly_salary, yearsServed) {
+  if (yearsServed <= 0 || !monthly_salary) return 0
+  if (yearsServed <= 5) return monthly_salary * 0.5 * yearsServed
+  return monthly_salary * 0.5 * 5 + monthly_salary * 1.0 * (yearsServed - 5)
+}
+
+async function _eosbForEmployee(employee, asOfIso) {
+  const hire = employee.hire_date ? new Date(employee.hire_date + 'T00:00:00Z').getTime() : null
+  const asOf = new Date(asOfIso + 'T00:00:00Z').getTime()
+  if (!hire || asOf <= hire) return { years_served: 0, monthly_salary: Number(employee.base_salary ?? 0), accrued: 0 }
+  const yearsServed = (asOf - hire) / (365.25 * 86_400_000)
+  const monthly_salary = Number(employee.base_salary ?? 0)
+  const accrued = _eosbForYears(monthly_salary, yearsServed)
+  return { years_served: yearsServed, monthly_salary, accrued }
+}
+
+async function computeEosbTool(input) {
+  let empId = input.employee_id ?? null
+  if (!empId && input.employee_name) empId = await findOneTeamMemberIdByName(input.employee_name)
+  if (!empId) throw new Error('Specify employee_id or employee_name.')
+
+  const { data: emp } = await supabase
+    .from('team_members')
+    .select('id, full_name, base_salary, salary_currency, hire_date')
+    .eq('id', empId).maybeSingle()
+  if (!emp) throw new Error('employee not found')
+
+  const asOf = input.as_of_date || new Date().toISOString().slice(0, 10)
+  const { years_served, monthly_salary, accrued } = await _eosbForEmployee(emp, asOf)
+  const round = Math.round(accrued * 100) / 100
+  await supabase.from('eosb_snapshots').upsert({
+    employee_id: empId,
+    as_of_date: asOf,
+    years_served: Math.round(years_served * 1000) / 1000,
+    monthly_salary,
+    accrued_amount: round,
+    currency: emp.salary_currency || 'SAR',
+  }, { onConflict: 'employee_id,as_of_date' }).catch(() => null)
+  await revalidate(['/hr/eosb'])
+  return {
+    employee_id: empId,
+    employee_name: emp.full_name,
+    as_of_date: asOf,
+    years_served: Math.round(years_served * 100) / 100,
+    monthly_salary,
+    accrued: round,
+    currency: emp.salary_currency || 'SAR',
+  }
+}
+
+async function generatePayrollTool(input) {
+  const year = Number(input.year)
+  const month = Number(input.month)
+  if (!year || !month || month < 1 || month > 12) throw new Error('Pass valid year + month.')
+
+  // Period bounds for prorating unpaid leave
+  const periodStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const periodEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+
+  const { data: emps } = await supabase
+    .from('team_members')
+    .select('id, full_name, base_salary, salary_currency, housing_allowance, transport_allowance, other_allowances, gosi_subject, employment_type, hire_date, status')
+    .eq('status', 'active')
+
+  const generated = []
+  for (const e of (emps ?? [])) {
+    const baseSalary = Number(e.base_salary ?? 0)
+    if (!baseSalary) continue
+
+    const housing   = Number(e.housing_allowance ?? 0)
+    const transport = Number(e.transport_allowance ?? 0)
+    const other     = Number(e.other_allowances ?? 0)
+    const gross     = baseSalary + housing + transport + other
+
+    // Skip if a paid row already exists — don't clobber.
+    const { data: existing } = await supabase
+      .from('payroll_records')
+      .select('id, status')
+      .eq('employee_id', e.id).eq('period_year', year).eq('period_month', month)
+      .maybeSingle()
+    if (existing && existing.status === 'paid') {
+      continue
+    }
+
+    // GOSI: KSA Saudi nationals → 9% employee share. Expats → no employee GOSI
+    // (only employer pays 2%), so we record it as 0 for the employee row.
+    const gosiPct = e.gosi_subject === 'saudi' ? 0.09 : 0
+    const gosi = Math.round(baseSalary * gosiPct * 100) / 100
+
+    // Unpaid leave subtraction — count approved unpaid days that overlap the period
+    const { data: unpaid } = await supabase
+      .from('leave_requests')
+      .select('start_date, end_date, days, type, status')
+      .eq('employee_id', e.id).eq('type', 'unpaid').eq('status', 'approved')
+      .lte('start_date', periodEnd).gte('end_date', periodStart)
+    let unpaidDays = 0
+    for (const u of (unpaid ?? [])) {
+      const from = u.start_date < periodStart ? periodStart : u.start_date
+      const to   = u.end_date   > periodEnd   ? periodEnd   : u.end_date
+      unpaidDays += _daysBetween(from, to)
+    }
+    const dailyRate = gross / 30 // KSA convention: 30-day month
+    const unpaidDeduction = Math.round(unpaidDays * dailyRate * 100) / 100
+
+    // EOSB accrual (informational only — not deducted from net)
+    const eosb = await _eosbForEmployee(e, periodEnd)
+    const monthlyEosbAccrual = Math.round(((eosb.years_served > 5 ? baseSalary / 12 : baseSalary / 24)) * 100) / 100
+
+    const deductions = gosi + unpaidDeduction
+    const bonus = 0
+    const net = gross + bonus - deductions
+
+    // Upsert row + replace line items
+    const upsertRow = {
+      employee_id: e.id, period_year: year, period_month: month,
+      gross_amount: gross, deductions, bonus, status: 'pending',
+      currency: e.salary_currency || 'SAR',
+    }
+    const { data: prow, error: pErr } = await supabase
+      .from('payroll_records')
+      .upsert(upsertRow, { onConflict: 'employee_id,period_year,period_month' })
+      .select('id').single()
+    if (pErr) throw new Error(`payroll upsert failed: ${pErr.message}`)
+
+    // Clear + reinsert lines
+    await supabase.from('payroll_line_items').delete().eq('payroll_id', prow.id)
+    const lines = [
+      { kind: 'base',      label: 'Base salary',           label_ar: 'الراتب الأساسي',         amount: baseSalary, is_deduction: false, position: 0 },
+    ]
+    if (housing)   lines.push({ kind: 'housing',   label: 'Housing allowance',       label_ar: 'بدل سكن',           amount: housing,   is_deduction: false, position: 1 })
+    if (transport) lines.push({ kind: 'transport', label: 'Transport allowance',     label_ar: 'بدل نقل',           amount: transport, is_deduction: false, position: 2 })
+    if (other)     lines.push({ kind: 'allowance', label: 'Other allowances',        label_ar: 'بدلات أخرى',        amount: other,     is_deduction: false, position: 3 })
+    if (gosi)      lines.push({ kind: 'gosi_employee', label: 'GOSI (9% employee)',  label_ar: 'تأمينات اجتماعية', amount: gosi,      is_deduction: true,  position: 4 })
+    if (unpaidDeduction) lines.push({ kind: 'unpaid_leave', label: `Unpaid leave (${unpaidDays}d)`, label_ar: `إجازة بدون راتب (${unpaidDays} يوم)`, amount: unpaidDeduction, is_deduction: true, position: 5 })
+    lines.push({ kind: 'eosb_accrual', label: 'EOSB accrual (informational)', label_ar: 'مخصص نهاية الخدمة (للعلم)', amount: monthlyEosbAccrual, is_deduction: false, position: 9, meta: { informational: true } })
+
+    const linesToInsert = lines.map((l) => ({ ...l, payroll_id: prow.id }))
+    await supabase.from('payroll_line_items').insert(linesToInsert)
+    generated.push({ employee_id: e.id, name: e.full_name, gross, deductions, net })
+  }
+
+  await revalidate(['/hr'])
+  return {
+    period: `${year}-${String(month).padStart(2, '0')}`,
+    generated: generated.length,
+    rows: generated,
+  }
+}
+
+async function markPayrollPaidTool(input) {
+  const paidDate = input.paid_date || new Date().toISOString().slice(0, 10)
+  const { data: row, error } = await supabase
+    .from('payroll_records')
+    .update({ status: 'paid', paid_date: paidDate, method: input.method ?? null, notes: input.notes ?? null })
+    .eq('id', input.payroll_id).eq('status', 'pending')
+    .select('id, employee_id, period_year, period_month').single()
+  if (error) throw new Error(`mark paid failed: ${error.message}`)
+  if (!row) throw new Error('No pending payroll row with that id.')
+
+  let slipResult = null
+  if (input.send_slip !== false) {
+    try { slipResult = await sendSalarySlipTool({ payroll_id: input.payroll_id, channel: 'both' }) }
+    catch (e) { slipResult = { error: e?.message ?? 'slip send failed' } }
+  }
+  await revalidate(['/hr'])
+  return { paid: true, id: input.payroll_id, slip: slipResult }
+}
+
+async function findPayrollTool(input) {
+  let empId = input.employee_id ?? null
+  if (!empId && input.employee_name) empId = await findOneTeamMemberIdByName(input.employee_name)
+  let q = supabase.from('payroll_records')
+    .select('id, employee_id, period_year, period_month, gross_amount, deductions, bonus, net_amount, currency, status, paid_date, method, team_members:employee_id (full_name)')
+    .order('period_year', { ascending: false })
+    .order('period_month', { ascending: false })
+    .limit(50)
+  if (empId) q = q.eq('employee_id', empId)
+  if (input.year) q = q.eq('period_year', input.year)
+  if (input.month) q = q.eq('period_month', input.month)
+  if (input.status) q = q.eq('status', input.status)
+  const { data, error } = await q
+  if (error) throw new Error(`find payroll failed: ${error.message}`)
+  return {
+    count: data.length,
+    rows: data.map((r) => ({ ...r, employee_name: r.team_members?.full_name })),
+  }
+}
+
+// ---- F6: salary slip ---------------------------------------------------------
+
+async function sendSalarySlipTool(input) {
+  const { data: pay } = await supabase
+    .from('payroll_records')
+    .select('id, period_year, period_month, gross_amount, deductions, bonus, net_amount, currency, status, paid_date, method, team_members:employee_id (id, full_name, full_name_ar, job_title, job_title_ar, email, whatsapp, phone, bank_iban)')
+    .eq('id', input.payroll_id).maybeSingle()
+  if (!pay) throw new Error('payroll row not found')
+
+  const emp = pay.team_members
+  if (!emp) throw new Error('linked employee row missing')
+
+  // Pull line items for the breakdown table
+  const { data: lines } = await supabase
+    .from('payroll_line_items')
+    .select('label, label_ar, amount, is_deduction, kind, meta')
+    .eq('payroll_id', input.payroll_id)
+    .order('position')
+
+  const period = `${pay.period_year}-${String(pay.period_month).padStart(2, '0')}`
+  const monthName = new Date(Date.UTC(pay.period_year, pay.period_month - 1, 1)).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+  const monthNameAr = new Date(Date.UTC(pay.period_year, pay.period_month - 1, 1)).toLocaleDateString('ar-SA-u-nu-latn', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+
+  // Render HTML
+  const sigLines = (lines ?? []).map((l) => `
+      <tr>
+        <td style="padding:6px 8px;border-top:1px solid #eee;text-align:left;">${escapeHtmlLocal(l.label)}</td>
+        <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right;direction:rtl;">${escapeHtmlLocal(l.label_ar || '')}</td>
+        <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right;color:${l.is_deduction ? '#b91c1c' : '#16a34a'};">
+          ${l.is_deduction ? '−' : ''}${Number(l.amount).toLocaleString('en-US')}
+        </td>
+      </tr>
+  `).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Salary Slip ${period}</title></head><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:24px;color:#0f172a">
+    <div style="max-width:640px;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+      <div style="background:#000;color:#bef264;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-weight:900;font-size:22px;letter-spacing:-0.5px;">Emergize</div>
+        <div style="font-size:11px;font-weight:bold;opacity:.85;">SALARY SLIP · إيصال راتب</div>
+      </div>
+      <div style="padding:24px;">
+        <table style="width:100%;font-size:13px;line-height:1.55;">
+          <tr>
+            <td style="padding:4px 0;color:#64748b;">Employee · الموظف</td>
+            <td style="padding:4px 0;text-align:right;font-weight:bold;">${escapeHtmlLocal(emp.full_name || '')} ${emp.full_name_ar ? `<span style="font-weight:normal;color:#64748b">· ${escapeHtmlLocal(emp.full_name_ar)}</span>` : ''}</td>
+          </tr>
+          ${emp.job_title ? `<tr><td style="padding:4px 0;color:#64748b;">Job title · المسمى</td><td style="padding:4px 0;text-align:right;">${escapeHtmlLocal(emp.job_title)} ${emp.job_title_ar ? `<span style="color:#64748b">· ${escapeHtmlLocal(emp.job_title_ar)}</span>` : ''}</td></tr>` : ''}
+          <tr><td style="padding:4px 0;color:#64748b;">Period · الفترة</td><td style="padding:4px 0;text-align:right;">${escapeHtmlLocal(monthName)} <span style="color:#64748b">· ${escapeHtmlLocal(monthNameAr)}</span></td></tr>
+          ${pay.paid_date ? `<tr><td style="padding:4px 0;color:#64748b;">Paid on · تاريخ الصرف</td><td style="padding:4px 0;text-align:right;">${pay.paid_date}</td></tr>` : ''}
+          ${pay.method ? `<tr><td style="padding:4px 0;color:#64748b;">Method · طريقة الصرف</td><td style="padding:4px 0;text-align:right;">${escapeHtmlLocal(pay.method)}</td></tr>` : ''}
+          ${emp.bank_iban ? `<tr><td style="padding:4px 0;color:#64748b;">IBAN</td><td style="padding:4px 0;text-align:right;font-family:monospace;">${escapeHtmlLocal(emp.bank_iban)}</td></tr>` : ''}
+        </table>
+        <h3 style="margin:20px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#64748b;">Breakdown · التفاصيل</h3>
+        <table style="width:100%;font-size:13px;border-collapse:collapse;">
+          <thead><tr style="background:#f1f5f9;font-weight:bold;font-size:11px;text-transform:uppercase;letter-spacing:.5px;">
+            <th style="padding:8px;text-align:left;">Item</th><th style="padding:8px;text-align:right;">البند</th><th style="padding:8px;text-align:right;">${escapeHtmlLocal(pay.currency || 'SAR')}</th>
+          </tr></thead>
+          <tbody>${sigLines}</tbody>
+        </table>
+        <div style="margin-top:18px;padding:12px 14px;background:#ecfdf5;border-left:4px solid #16a34a;border-radius:6px;display:flex;justify-content:space-between;font-weight:900;font-size:16px;">
+          <span>Net pay · صافي الراتب</span>
+          <span>${Number(pay.net_amount ?? 0).toLocaleString('en-US')} ${pay.currency || 'SAR'}</span>
+        </div>
+        <p style="margin-top:18px;font-size:11px;color:#64748b;line-height:1.5;">Auto-generated by Emergize HR. Questions about this slip? Reply to this message or email info@emergize-sa.com.</p>
+      </div>
+    </div>
+  </body></html>`
+
+  // Upload as a generic PDF — we don't have a Chrome renderer wired here,
+  // so emit an HTML email instead of a PDF for now. The dashboard can later
+  // generate a real PDF via /api/hr/salary-slip if a Chrome runtime is wired.
+  const subject = `Salary slip · ${monthName} · ${Number(pay.net_amount ?? 0).toLocaleString('en-US')} ${pay.currency || 'SAR'}`
+  let emailRes = null, waRes = null
+  const channel = input.channel || 'both'
+
+  if ((channel === 'email' || channel === 'both') && emp.email) {
+    try {
+      emailRes = await sendEmail({ to: emp.email, subject, text: `Your salary slip for ${monthName} is attached below.`, html, client_id: null })
+    } catch (err) { emailRes = { sent: false, error: err?.message } }
+  }
+  if ((channel === 'whatsapp' || channel === 'both') && (emp.whatsapp || emp.phone)) {
+    try {
+      const text =
+        `💰 *Salary slip — ${monthName}*\n\n` +
+        `Net: *${Number(pay.net_amount ?? 0).toLocaleString('en-US')} ${pay.currency || 'SAR'}*\n` +
+        `Gross: ${Number(pay.gross_amount ?? 0).toLocaleString('en-US')} ${pay.currency || 'SAR'}\n` +
+        `Deductions: ${Number(pay.deductions ?? 0).toLocaleString('en-US')} ${pay.currency || 'SAR'}\n` +
+        (pay.paid_date ? `Paid: ${pay.paid_date}\n` : '') +
+        `\nFull breakdown sent to your email.`
+      waRes = await sendWhatsappMessage({ to_phone: emp.whatsapp || emp.phone, text, client_id: null })
+    } catch (err) { waRes = { sent: false, error: err?.message } }
+  }
+
+  await supabase.from('payroll_records').update({
+    slip_sent_at: new Date().toISOString(),
+    slip_channel: channel,
+  }).eq('id', input.payroll_id).catch(() => null)
+
+  return {
+    payroll_id: input.payroll_id, channel,
+    email_sent: emailRes?.sent === true,
+    whatsapp_sent: waRes?.sent === true,
+    email_error: emailRes?.error,
+    whatsapp_error: waRes?.error,
+  }
+}
+
+function escapeHtmlLocal(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+
+// ---- F7: onboarding ----------------------------------------------------------
+
+const ONBOARDING_TEMPLATES = {
+  saudi_full_time: [
+    { title: 'Sign employment contract',       title_ar: 'توقيع عقد العمل',                    category: 'paperwork',  owner_role: 'employee', due_offset_days: 1 },
+    { title: 'Collect national_id copy',       title_ar: 'استلام نسخة الهوية الوطنية',         category: 'paperwork',  owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'GOSI registration',              title_ar: 'تسجيل التأمينات الاجتماعية (GOSI)',  category: 'compliance', owner_role: 'finance',  due_offset_days: 7 },
+    { title: 'Collect bank IBAN form',         title_ar: 'استلام نموذج رقم الآيبان',           category: 'paperwork',  owner_role: 'finance',  due_offset_days: 3 },
+    { title: 'Set up @emergize-sa.com email',  title_ar: 'إنشاء بريد العمل',                  category: 'access',     owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Sign NDA / IP agreement',        title_ar: 'توقيع اتفاقية السرية',               category: 'paperwork',  owner_role: 'employee', due_offset_days: 1 },
+    { title: 'Equipment handover (laptop)',    title_ar: 'تسليم الأجهزة (لابتوب)',             category: 'orientation',owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Add to WhatsApp + Slack channels', title_ar: 'إضافته إلى مجموعات واتساب وسلاك', category: 'access',     owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Intro 1:1 with manager',         title_ar: 'لقاء تعريفي مع المدير',              category: 'orientation',owner_role: 'manager',  due_offset_days: 3 },
+    { title: 'First-week training plan',       title_ar: 'خطة تدريب الأسبوع الأول',            category: 'orientation',owner_role: 'manager',  due_offset_days: 7 },
+    { title: '30-day check-in',                title_ar: 'مراجعة بعد 30 يوم',                  category: 'orientation',owner_role: 'manager',  due_offset_days: 30 },
+  ],
+  expat_full_time: [
+    { title: 'Sign employment contract',       title_ar: 'توقيع عقد العمل',                    category: 'paperwork',  owner_role: 'employee', due_offset_days: 1 },
+    { title: 'Collect passport copy',          title_ar: 'استلام نسخة الجواز',                 category: 'paperwork',  owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Apply for / transfer iqama',     title_ar: 'إصدار / نقل الإقامة',                category: 'compliance', owner_role: 'admin',    due_offset_days: 14 },
+    { title: 'Apply for visa stamping',        title_ar: 'إصدار تأشيرة العمل',                category: 'compliance', owner_role: 'admin',    due_offset_days: 21 },
+    { title: 'GOSI registration (2% employer)',title_ar: 'تسجيل التأمينات (2% صاحب العمل)',    category: 'compliance', owner_role: 'finance',  due_offset_days: 7 },
+    { title: 'Medical insurance enrollment',   title_ar: 'تسجيل التأمين الطبي',                category: 'compliance', owner_role: 'admin',    due_offset_days: 14 },
+    { title: 'Collect bank IBAN form',         title_ar: 'استلام نموذج رقم الآيبان',           category: 'paperwork',  owner_role: 'finance',  due_offset_days: 3 },
+    { title: 'Set up @emergize-sa.com email',  title_ar: 'إنشاء بريد العمل',                  category: 'access',     owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Sign NDA / IP agreement',        title_ar: 'توقيع اتفاقية السرية',               category: 'paperwork',  owner_role: 'employee', due_offset_days: 1 },
+    { title: 'Equipment handover (laptop)',    title_ar: 'تسليم الأجهزة (لابتوب)',             category: 'orientation',owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Add to WhatsApp + Slack channels', title_ar: 'إضافته إلى مجموعات واتساب وسلاك', category: 'access',     owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Intro 1:1 with manager',         title_ar: 'لقاء تعريفي مع المدير',              category: 'orientation',owner_role: 'manager',  due_offset_days: 3 },
+    { title: '30-day check-in',                title_ar: 'مراجعة بعد 30 يوم',                  category: 'orientation',owner_role: 'manager',  due_offset_days: 30 },
+  ],
+  part_time: [
+    { title: 'Sign part-time contract',        title_ar: 'توقيع عقد جزئي',                     category: 'paperwork',  owner_role: 'employee', due_offset_days: 1 },
+    { title: 'Collect ID copy',                title_ar: 'استلام نسخة الهوية',                category: 'paperwork',  owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Set up @emergize-sa.com email',  title_ar: 'إنشاء بريد العمل',                  category: 'access',     owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Add to WhatsApp + Slack channels', title_ar: 'إضافته إلى المجموعات',            category: 'access',     owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Define working hours / schedule',title_ar: 'تحديد ساعات العمل',                 category: 'orientation',owner_role: 'manager',  due_offset_days: 2 },
+  ],
+  intern: [
+    { title: 'Sign internship agreement',      title_ar: 'توقيع عقد التدريب',                 category: 'paperwork',  owner_role: 'employee', due_offset_days: 1 },
+    { title: 'Collect ID copy',                title_ar: 'استلام نسخة الهوية',                category: 'paperwork',  owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'University coordination letter', title_ar: 'خطاب التنسيق مع الجامعة',           category: 'paperwork',  owner_role: 'admin',    due_offset_days: 7 },
+    { title: 'Assign mentor',                  title_ar: 'تعيين موجِّه',                       category: 'orientation',owner_role: 'manager',  due_offset_days: 1 },
+    { title: 'Set up dashboard access',        title_ar: 'إعداد صلاحيات النظام',              category: 'access',     owner_role: 'admin',    due_offset_days: 1 },
+    { title: 'Add to WhatsApp + Slack channels', title_ar: 'إضافته إلى المجموعات',            category: 'access',     owner_role: 'admin',    due_offset_days: 1 },
+  ],
+  contractor: [
+    { title: 'Sign contractor agreement',      title_ar: 'توقيع عقد المقاول',                 category: 'paperwork',  owner_role: 'employee', due_offset_days: 1 },
+    { title: 'Collect CR / freelance license', title_ar: 'استلام السجل التجاري / رخصة العمل الحر', category: 'paperwork', owner_role: 'admin', due_offset_days: 3 },
+    { title: 'Confirm payment terms + IBAN',   title_ar: 'تأكيد شروط الدفع والآيبان',          category: 'paperwork',  owner_role: 'finance',  due_offset_days: 1 },
+    { title: 'Project scope brief',            title_ar: 'إيضاح نطاق المشروع',                 category: 'orientation',owner_role: 'manager',  due_offset_days: 1 },
+    { title: 'Add to project WhatsApp group',  title_ar: 'إضافته إلى مجموعة المشروع',         category: 'access',     owner_role: 'admin',    due_offset_days: 1 },
+  ],
+}
+
+async function startOnboardingTool(input) {
+  const { data: emp } = await supabase
+    .from('team_members').select('id, full_name, employment_type, nationality, hire_date').eq('id', input.employee_id).maybeSingle()
+  if (!emp) throw new Error('employee not found')
+
+  let template = input.template
+  if (!template) {
+    const isSaudi = (emp.nationality || '').toLowerCase().includes('saudi') || (emp.nationality || '') === 'SA'
+    const et = emp.employment_type || 'full_time'
+    if (et === 'intern') template = 'intern'
+    else if (et === 'contractor') template = 'contractor'
+    else if (et === 'part_time') template = 'part_time'
+    else template = isSaudi ? 'saudi_full_time' : 'expat_full_time'
+  }
+  if (!ONBOARDING_TEMPLATES[template]) throw new Error(`Unknown template: ${template}`)
+
+  // Idempotent — one checklist per employee
+  const { data: existing } = await supabase
+    .from('onboarding_checklists').select('id').eq('employee_id', input.employee_id).maybeSingle()
+  if (existing) {
+    return { already_started: true, checklist_id: existing.id, template }
+  }
+
+  const { data: chk, error } = await supabase
+    .from('onboarding_checklists')
+    .insert({ employee_id: input.employee_id, template, status: 'in_progress' })
+    .select('id').single()
+  if (error) throw new Error(`onboarding create failed: ${error.message}`)
+
+  const tpl = ONBOARDING_TEMPLATES[template]
+  const items = tpl.map((it, idx) => ({
+    checklist_id: chk.id,
+    position: idx,
+    title: it.title,
+    title_ar: it.title_ar,
+    category: it.category,
+    owner_role: it.owner_role,
+    due_offset_days: it.due_offset_days,
+    done: false,
+  }))
+  await supabase.from('onboarding_checklist_items').insert(items)
+
+  await revalidate(['/hr/onboarding', '/hr'])
+  return { started: true, checklist_id: chk.id, template, items_count: items.length, employee_name: emp.full_name }
+}
+
+async function markOnboardingItemDoneTool(input) {
+  const { error } = await supabase
+    .from('onboarding_checklist_items')
+    .update({ done: true, done_at: new Date().toISOString() })
+    .eq('id', input.item_id)
+  if (error) throw new Error(`mark item done failed: ${error.message}`)
+  await revalidate(['/hr/onboarding'])
+  return { done: true, item_id: input.item_id }
+}
+
+// ---- F8: performance brief ---------------------------------------------------
+
+async function performanceBriefTool(input) {
+  let empId = input.employee_id ?? null
+  if (!empId && input.employee_name) empId = await findOneTeamMemberIdByName(input.employee_name)
+  if (!empId) throw new Error('Specify employee_id or employee_name.')
+
+  const days = Math.max(7, Math.min(180, input.days ?? 30))
+  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10)
+
+  const { data: emp } = await supabase
+    .from('team_members').select('id, full_name, job_title, hire_date').eq('id', empId).maybeSingle()
+  if (!emp) throw new Error('employee not found')
+
+  // Tasks closed
+  const { data: tasksClosed } = await supabase
+    .from('tasks').select('id, title, status, updated_at, clients:client_id (company_name)')
+    .eq('assignee_id', empId).eq('status', 'completed').gte('updated_at', since)
+
+  // Tasks still open
+  const { data: tasksOpen } = await supabase
+    .from('tasks').select('id, title, status, due_date, priority').eq('assignee_id', empId).neq('status', 'completed').limit(20)
+
+  // Weekly reports authored
+  let reports = []
+  try {
+    const r = await supabase.from('weekly_reports')
+      .select('id, period_end, customer_company')
+      .eq('assignee_id', empId).gte('period_end', since)
+    reports = r.data ?? []
+  } catch {/* assignee_id may not exist on this project */}
+
+  // Content posted
+  let content = []
+  try {
+    const c = await supabase.from('content_items')
+      .select('id, title, platform, schedule_status, publish_date')
+      .eq('assignee_id', empId).gte('publish_date', since)
+    content = c.data ?? []
+  } catch {/* */}
+
+  // Leave taken
+  const { data: leave } = await supabase.from('leave_requests')
+    .select('start_date, end_date, days, type').eq('employee_id', empId).eq('status', 'approved')
+    .gte('start_date', since)
+
+  // Attendance lateness
+  const { data: lateness } = await supabase.from('attendance_logs')
+    .select('log_date, status, late_minutes').eq('employee_id', empId)
+    .gte('log_date', since)
+  const lateCount = (lateness ?? []).filter((a) => a.status === 'late').length
+  const lateMinutes = (lateness ?? []).reduce((s, a) => s + (Number(a.late_minutes) || 0), 0)
+  const wfhCount = (lateness ?? []).filter((a) => a.status === 'wfh').length
+
+  const touchedClients = Array.from(new Set((tasksClosed ?? []).map((t) => t.clients?.company_name).filter(Boolean)))
+
+  const brief =
+    `*Performance brief — ${emp.full_name}*\n` +
+    `Window: last ${days} days (${since} → ${today})\n\n` +
+    `*Tasks closed:* ${(tasksClosed ?? []).length}\n` +
+    ((tasksClosed ?? []).slice(0, 5).map((t) => `  • ${t.title}${t.clients?.company_name ? ` — ${t.clients.company_name}` : ''}`).join('\n') || '  (none)') + '\n\n' +
+    `*Tasks still open:* ${(tasksOpen ?? []).length}\n` +
+    ((tasksOpen ?? []).slice(0, 5).map((t) => `  • ${t.priority?.toUpperCase() ?? '—'} · ${t.title} (due ${t.due_date || '—'})`).join('\n') || '  (none)') + '\n\n' +
+    `*Clients touched:* ${touchedClients.length ? touchedClients.join(', ') : '—'}\n` +
+    `*Weekly reports authored:* ${reports.length}\n` +
+    `*Content posted:* ${content.length}\n` +
+    `*Leave taken:* ${(leave ?? []).reduce((s, l) => s + Number(l.days || 0), 0)} day(s) across ${(leave ?? []).length} request(s)\n` +
+    `*Attendance:* ${lateCount} late days (${lateMinutes} min total), ${wfhCount} WFH days\n\n` +
+    `Suggested 1:1 talking points:\n` +
+    `  • Review the ${(tasksOpen ?? []).length} open tasks — any blocked?\n` +
+    `  • Acknowledge wins from the ${(tasksClosed ?? []).length} closed tasks${touchedClients[0] ? ` (esp. ${touchedClients[0]} work)` : ''}\n` +
+    `  • ${lateCount >= 3 ? '⚠ Discuss the lateness pattern (' + lateCount + ' late days)' : 'Check in on workload balance'}\n` +
+    `  • Career growth: what does the next 90 days look like?`
+
+  return {
+    employee_id: empId,
+    employee_name: emp.full_name,
+    window_days: days,
+    tasks_closed: (tasksClosed ?? []).length,
+    tasks_open: (tasksOpen ?? []).length,
+    clients_touched: touchedClients,
+    reports_count: reports.length,
+    content_count: content.length,
+    leave_days: (leave ?? []).reduce((s, l) => s + Number(l.days || 0), 0),
+    late_count: lateCount,
+    late_minutes: lateMinutes,
+    wfh_count: wfhCount,
+    brief,
+  }
+}
+
+// ---- F9: attendance ----------------------------------------------------------
+
+async function logAttendanceTool(input) {
+  let emp = null
+  if (input.override_employee_id) {
+    const { data } = await supabase.from('team_members').select('id, full_name').eq('id', input.override_employee_id).maybeSingle()
+    emp = data
+  } else {
+    emp = await _resolveEmployeeFromSender()
+  }
+  if (!emp) throw new Error('Could not resolve employee. Add their WhatsApp to team_members or pass override_employee_id.')
+
+  const action = input.action
+  const log_date = input.log_date || new Date().toISOString().slice(0, 10)
+  const now = new Date().toISOString()
+
+  // Find or create row
+  const { data: existing } = await supabase
+    .from('attendance_logs').select('id, check_in_at, check_out_at, status, late_minutes')
+    .eq('employee_id', emp.id).eq('log_date', log_date).maybeSingle()
+
+  const patch = { source: 'whatsapp', notes: input.notes ?? null }
+  if (action === 'check_in') {
+    patch.check_in_at = now
+    patch.status = 'present'
+  } else if (action === 'check_out') {
+    patch.check_out_at = now
+    if (!existing?.check_in_at) patch.status = 'present'
+  } else if (action === 'wfh') {
+    patch.status = 'wfh'
+    patch.check_in_at = now
+  } else if (action === 'late') {
+    patch.status = 'late'
+    patch.late_minutes = Number(input.late_minutes ?? 0)
+    patch.check_in_at = now
+  } else if (action === 'absent') {
+    patch.status = 'absent'
+  }
+
+  let row
+  if (existing) {
+    const { data, error } = await supabase.from('attendance_logs').update(patch).eq('id', existing.id).select('id').single()
+    if (error) throw new Error(error.message)
+    row = data
+  } else {
+    const { data, error } = await supabase.from('attendance_logs').insert({
+      employee_id: emp.id, log_date, ...patch,
+    }).select('id').single()
+    if (error) throw new Error(error.message)
+    row = data
+  }
+  return { logged: true, employee_name: emp.full_name, action, log_date, attendance_id: row.id }
+}
+
+async function attendanceReportTool(input) {
+  const year = Number(input.year) || new Date().getUTCFullYear()
+  const month = Number(input.month) || (new Date().getUTCMonth() + 1)
+  const from = `${year}-${String(month).padStart(2, '0')}-01`
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const to = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+
+  let q = supabase.from('attendance_logs')
+    .select('employee_id, log_date, status, late_minutes, team_members:employee_id (full_name)')
+    .gte('log_date', from).lte('log_date', to)
+  if (input.employee_id) q = q.eq('employee_id', input.employee_id)
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+
+  const per = new Map()
+  for (const r of (data ?? [])) {
+    const k = r.employee_id
+    if (!per.has(k)) per.set(k, { employee_id: k, employee_name: r.team_members?.full_name ?? '—', present: 0, wfh: 0, late: 0, absent: 0, total_late_minutes: 0 })
+    const m = per.get(k)
+    m[r.status] = (m[r.status] || 0) + 1
+    if (r.status === 'late') m.total_late_minutes += Number(r.late_minutes || 0)
+  }
+  return { period: `${year}-${String(month).padStart(2, '0')}`, rows: Array.from(per.values()) }
+}
+
+// ---- F10: candidates ---------------------------------------------------------
+
+async function addCandidateTool(input) {
+  const row = {
+    full_name: input.full_name,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
+    whatsapp: input.whatsapp ?? null,
+    nationality: input.nationality ?? null,
+    current_city: input.current_city ?? null,
+    current_title: input.current_title ?? null,
+    years_experience: input.years_experience ?? null,
+    education: input.education ?? null,
+    skills: Array.isArray(input.skills) ? input.skills : null,
+    languages: Array.isArray(input.languages) ? input.languages : null,
+    asking_salary: input.asking_salary ?? null,
+    salary_currency: input.salary_currency || 'SAR',
+    cv_url: input.cv_url ?? null,
+    cv_text: input.cv_text ? String(input.cv_text).slice(0, 50_000) : null,
+    notes: input.notes ?? null,
+    status: 'new',
+  }
+  const { data, error } = await supabase.from('candidates').insert(row).select('id').single()
+  if (error) throw new Error(`add candidate failed: ${error.message}`)
+
+  await supabase.from('notifications').insert({
+    user_id: null,
+    title: `New candidate: ${input.full_name}`,
+    message: `${input.current_title || 'Applicant'}${input.years_experience ? ` · ${input.years_experience}y exp` : ''}${input.asking_salary ? ` · asking ${input.asking_salary} ${row.salary_currency}` : ''}. Open /hr/candidates to review.`,
+    type: 'candidate_new',
+    related_id: data.id,
+    is_read: false,
+  }).catch(() => null)
+
+  await revalidate(['/hr/candidates', '/notifications'])
+  return { candidate_id: data.id }
+}
+
+async function findCandidatesTool(input) {
+  let q = supabase.from('candidates')
+    .select('id, full_name, email, phone, current_title, years_experience, asking_salary, salary_currency, status, rating, created_at')
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Math.min(100, input.limit ?? 20)))
+  if (input.status) q = q.eq('status', input.status)
+  if (input.q) q = q.or(`full_name.ilike.%${input.q}%,current_title.ilike.%${input.q}%,cv_text.ilike.%${input.q}%`)
+  if (input.skill) q = q.contains('skills', [input.skill])
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return { count: data.length, rows: data }
+}
+
+async function promoteCandidateTool(input) {
+  const { data: cand } = await supabase.from('candidates').select('*').eq('id', input.candidate_id).maybeSingle()
+  if (!cand) throw new Error('candidate not found')
+  if (cand.status === 'hired') throw new Error('candidate already hired')
+
+  const teamRow = {
+    full_name: cand.full_name,
+    email: cand.email,
+    phone: cand.phone,
+    whatsapp: cand.whatsapp,
+    job_title: input.job_title ?? cand.current_title,
+    base_salary: input.base_salary ?? cand.asking_salary,
+    salary_currency: cand.salary_currency || 'SAR',
+    hire_date: input.hire_date || new Date().toISOString().slice(0, 10),
+    employment_type: input.employment_type || 'full_time',
+    nationality: cand.nationality,
+    status: 'active',
+  }
+  const { data: tm, error: tErr } = await supabase.from('team_members').insert(teamRow).select('id').single()
+  if (tErr) throw new Error(`promote failed: ${tErr.message}`)
+
+  await supabase.from('candidates').update({
+    status: 'hired',
+    promoted_to_team_member_id: tm.id,
+  }).eq('id', input.candidate_id)
+
+  // Auto-start onboarding
+  let onboarding = null
+  try {
+    onboarding = await startOnboardingTool({ employee_id: tm.id })
+  } catch (err) {
+    onboarding = { error: err?.message }
+  }
+
+  await revalidate(['/hr', '/hr/candidates', '/team'])
+  return { promoted: true, team_member_id: tm.id, onboarding }
+}
+
+// ---- F11: HR letters ---------------------------------------------------------
+
+const KSA_LABOUR_LAW_CLAUSES = {
+  verbal_warning:   ['Article 80 (employer\'s right to terminate without notice for repeated breach)'],
+  written_warning:  ['Article 80', 'Article 65 (employee\'s general obligations)'],
+  final_warning:    ['Article 80', 'Article 65'],
+  termination:      ['Article 80', 'Article 77 (severance + EOSB)', 'Article 84 (end-of-service award)'],
+  salary_certificate: [],
+  employment_letter: [],
+  noc:              [],
+  experience_letter: [],
+  custom:           [],
+}
+
+async function draftHrLetterTool(input) {
+  let empId = input.employee_id ?? null
+  if (!empId && input.employee_name) empId = await findOneTeamMemberIdByName(input.employee_name)
+  if (!empId) throw new Error('Specify employee_id or employee_name.')
+
+  const { data: emp } = await supabase.from('team_members')
+    .select('id, full_name, full_name_ar, job_title, job_title_ar, department, hire_date, base_salary, salary_currency, nationality, iqama_number, national_id, gosi_subject')
+    .eq('id', empId).maybeSingle()
+  if (!emp) throw new Error('employee not found')
+
+  const refs = input.reference_clauses?.length ? input.reference_clauses : KSA_LABOUR_LAW_CLAUSES[input.letter_type] || []
+  const today = new Date().toISOString().slice(0, 10)
+  const ctx = input.context ? `\n\nContext: ${input.context}` : ''
+
+  const bodies = _renderLetterBody(input.letter_type, emp, input.subject, input.context, refs, today)
+
+  const { data: letter, error } = await supabase.from('hr_letters').insert({
+    employee_id: empId,
+    letter_type: input.letter_type,
+    subject: input.subject,
+    body_en: bodies.en,
+    body_ar: bodies.ar,
+    reference_clauses: refs,
+    status: 'draft',
+  }).select('id').single()
+  if (error) throw new Error(`draft letter failed: ${error.message}`)
+
+  await revalidate(['/hr/letters'])
+  return {
+    letter_id: letter.id,
+    letter_type: input.letter_type,
+    body_en: bodies.en,
+    body_ar: bodies.ar,
+    references: refs,
+    review_url: `/hr/letters/${letter.id}`,
+  }
+}
+
+function _renderLetterBody(type, emp, subject, context, refs, today) {
+  const refsLine = refs.length ? `References: ${refs.join(' · ')}` : ''
+  const refsLineAr = refs.length ? `المراجع: ${refs.join(' · ')}` : ''
+  const ctxLine = context ? `\n\n${context}` : ''
+  const ctxLineAr = context ? `\n\n${context}` : ''
+
+  switch (type) {
+    case 'verbal_warning':
+    case 'written_warning':
+    case 'final_warning': {
+      const labelEn = type === 'verbal_warning' ? 'Verbal Warning' : type === 'written_warning' ? 'Written Warning' : 'Final Warning'
+      const labelAr = type === 'verbal_warning' ? 'إنذار شفهي' : type === 'written_warning' ? 'إنذار كتابي' : 'إنذار نهائي'
+      return {
+        en: `${labelEn}\nTo: ${emp.full_name}${emp.job_title ? `, ${emp.job_title}` : ''}\nDate: ${today}\nSubject: ${subject}\n${ctxLine}\n\nThis serves as a formal ${labelEn.toLowerCase()} regarding the matter referenced above. We expect immediate corrective action. Continued breach may result in further disciplinary measures up to and including termination of your employment contract, in accordance with the Saudi Labour Law.\n\n${refsLine}\n\nSigned,\nEmergize HR`,
+        ar: `${labelAr}\nإلى: ${emp.full_name_ar || emp.full_name}${emp.job_title_ar ? `، ${emp.job_title_ar}` : ''}\nالتاريخ: ${today}\nالموضوع: ${subject}\n${ctxLineAr}\n\nيُعتبر هذا الخطاب ${labelAr} رسمياً بشأن الموضوع المشار إليه أعلاه. نتوقع منكم اتخاذ إجراء تصحيحي فوري. يؤدي استمرار المخالفة إلى اتخاذ مزيد من الإجراءات التأديبية قد تصل إلى إنهاء عقد العمل، وفقاً لنظام العمل في المملكة العربية السعودية.\n\n${refsLineAr}\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+      }
+    }
+    case 'termination':
+      return {
+        en: `Termination Notice\nTo: ${emp.full_name}${emp.job_title ? `, ${emp.job_title}` : ''}\nDate: ${today}\nSubject: ${subject}\n${ctxLine}\n\nThis letter serves as formal notice of the termination of your employment with Emergize, effective ${today}. Final settlement including any accrued End-of-Service Benefits (EOSB) per the Saudi Labour Law will be processed within the statutory timeframe.\n\n${refsLine}\n\nSigned,\nEmergize HR`,
+        ar: `إشعار إنهاء العمل\nإلى: ${emp.full_name_ar || emp.full_name}${emp.job_title_ar ? `، ${emp.job_title_ar}` : ''}\nالتاريخ: ${today}\nالموضوع: ${subject}\n${ctxLineAr}\n\nيُعتبر هذا الخطاب إشعاراً رسمياً بإنهاء عقد العمل لدى إيميرجايز اعتباراً من ${today}. ستتم تسوية المستحقات النهائية بما فيها مكافأة نهاية الخدمة وفقاً لنظام العمل في المملكة العربية السعودية خلال المدة النظامية.\n\n${refsLineAr}\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+      }
+    case 'salary_certificate':
+      return {
+        en: `To Whom It May Concern,\nThis is to certify that ${emp.full_name}${emp.iqama_number ? ` (Iqama ${emp.iqama_number})` : emp.national_id ? ` (ID ${emp.national_id})` : ''} has been employed by Emergize since ${emp.hire_date || '—'} as ${emp.job_title || '—'}, with a monthly salary of ${Number(emp.base_salary ?? 0).toLocaleString('en-US')} ${emp.salary_currency || 'SAR'}.\n\nIssued on ${today} at the employee's request.\n\nSigned,\nEmergize HR`,
+        ar: `إلى من يهمه الأمر،\nنُفيدكم بأن السيد/ة ${emp.full_name_ar || emp.full_name}${emp.iqama_number ? ` (إقامة ${emp.iqama_number})` : emp.national_id ? ` (هوية ${emp.national_id})` : ''} يعمل لدى شركة إيميرجايز منذ ${emp.hire_date || '—'} بصفة ${emp.job_title_ar || emp.job_title || '—'}، براتب شهري قدره ${Number(emp.base_salary ?? 0).toLocaleString('en-US')} ${emp.salary_currency || 'ريال سعودي'}.\n\nصدر هذا الخطاب بتاريخ ${today} بناءً على طلب الموظف.\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+      }
+    case 'employment_letter':
+      return {
+        en: `To Whom It May Concern,\nThis is to confirm that ${emp.full_name} is currently employed by Emergize as ${emp.job_title || '—'} since ${emp.hire_date || '—'}.\n\nIssued on ${today}.\n\nSigned,\nEmergize HR`,
+        ar: `إلى من يهمه الأمر،\nنُفيدكم بأن السيد/ة ${emp.full_name_ar || emp.full_name} يعمل حالياً لدى شركة إيميرجايز بصفة ${emp.job_title_ar || emp.job_title || '—'} منذ ${emp.hire_date || '—'}.\n\nصدر بتاريخ ${today}.\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+      }
+    case 'noc':
+      return {
+        en: `No-Objection Certificate (NOC)\nThis is to confirm that Emergize has no objection regarding the matter referenced below.\n\nEmployee: ${emp.full_name}\nSubject: ${subject}\n${ctxLine}\n\nDate: ${today}\n\nSigned,\nEmergize HR`,
+        ar: `شهادة عدم ممانعة\nنُفيدكم بأن شركة إيميرجايز لا تمانع في الموضوع المشار إليه أدناه.\n\nالموظف: ${emp.full_name_ar || emp.full_name}\nالموضوع: ${subject}\n${ctxLineAr}\n\nالتاريخ: ${today}\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+      }
+    case 'experience_letter':
+      return {
+        en: `Experience Certificate\nThis is to certify that ${emp.full_name} was employed at Emergize from ${emp.hire_date || '—'} to ${today} in the position of ${emp.job_title || '—'}, ${emp.department ? `within the ${emp.department} department, ` : ''}performing duties with diligence and professionalism.\n\nIssued on ${today}.\n\nSigned,\nEmergize HR`,
+        ar: `شهادة خبرة\nنُفيدكم بأن السيد/ة ${emp.full_name_ar || emp.full_name} عمل لدى شركة إيميرجايز خلال الفترة من ${emp.hire_date || '—'} حتى ${today} بصفة ${emp.job_title_ar || emp.job_title || '—'}${emp.department ? `، في قسم ${emp.department}` : ''}، وأدى مهامه بكل اجتهاد ومهنية.\n\nصدر بتاريخ ${today}.\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+      }
+    case 'custom':
+    default:
+      return {
+        en: `Subject: ${subject}\nTo: ${emp.full_name}\nDate: ${today}\n${ctxLine}\n\n${refsLine}\n\nSigned,\nEmergize HR`,
+        ar: `الموضوع: ${subject}\nإلى: ${emp.full_name_ar || emp.full_name}\nالتاريخ: ${today}\n${ctxLineAr}\n\n${refsLineAr}\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+      }
+  }
+}
+
+// ---- F12: HR documents -------------------------------------------------------
+
+async function addHrDocumentTool(input) {
+  let empId = input.employee_id ?? null
+  if (!empId && input.employee_name) empId = await findOneTeamMemberIdByName(input.employee_name)
+  if (!empId) throw new Error('Specify employee_id or employee_name.')
+
+  const row = {
+    employee_id: empId,
+    doc_type: input.doc_type,
+    file_path: input.file_path || input.file_url,
+    file_url: input.file_url,
+    doc_number: input.doc_number ?? null,
+    issue_date: input.issue_date ?? null,
+    expiry_date: input.expiry_date ?? null,
+    notes: input.notes ?? null,
+    ocr_text: input.ocr_text ? String(input.ocr_text).slice(0, 50_000) : null,
+  }
+  const { data, error } = await supabase.from('hr_documents').insert(row).select('id').single()
+  if (error) throw new Error(`add doc failed: ${error.message}`)
+
+  // Mirror common expiries onto team_members so the watchdog picks them up
+  // straight from the employee row too.
+  if (input.expiry_date && ['iqama', 'passport', 'visa'].includes(input.doc_type)) {
+    await supabase.from('team_members').update({
+      [`${input.doc_type}_expiry`]: input.expiry_date,
+      ...(input.doc_number && input.doc_type === 'iqama' ? { iqama_number: input.doc_number } : {}),
+    }).eq('id', empId).catch(() => null)
+  }
+
+  await revalidate(['/hr/documents', '/hr/expiries'])
+  return { document_id: data.id }
+}
+
+async function findHrDocumentsTool(input) {
+  let q = supabase.from('hr_documents')
+    .select('id, employee_id, doc_type, doc_number, issue_date, expiry_date, file_url, notes, team_members:employee_id (full_name)')
+    .order('expiry_date', { ascending: true, nullsFirst: false })
+  if (input.employee_id) q = q.eq('employee_id', input.employee_id)
+  if (input.doc_type) q = q.eq('doc_type', input.doc_type)
+  if (input.expiring_within_days) {
+    const cutoff = new Date(Date.now() + Number(input.expiring_within_days) * 86_400_000).toISOString().slice(0, 10)
+    q = q.lte('expiry_date', cutoff).gte('expiry_date', new Date().toISOString().slice(0, 10))
+  }
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return { count: data.length, rows: data.map((r) => ({ ...r, employee_name: r.team_members?.full_name })) }
+}
+
+// =============================================================================
 // REGISTRY
 // =============================================================================
 
@@ -3085,6 +4186,36 @@ const registry = {
   find_pending_nags: findPendingNagsTool,
   send_nag: sendNagTool,
   skip_nag: skipNagTool,
+  // HR — leave + conflict
+  request_leave_for_self: requestLeaveForSelfTool,
+  find_leave_requests: findLeaveRequestsTool,
+  approve_leave: approveLeaveTool,
+  reject_leave: rejectLeaveTool,
+  check_leave_conflicts: checkLeaveConflictsTool,
+  // HR — payroll + EOSB
+  generate_payroll: generatePayrollTool,
+  mark_payroll_paid: markPayrollPaidTool,
+  find_payroll: findPayrollTool,
+  compute_eosb: computeEosbTool,
+  // HR — salary slip
+  send_salary_slip: sendSalarySlipTool,
+  // HR — onboarding
+  start_onboarding: startOnboardingTool,
+  mark_onboarding_item_done: markOnboardingItemDoneTool,
+  // HR — performance brief
+  performance_brief: performanceBriefTool,
+  // HR — attendance
+  log_attendance: logAttendanceTool,
+  attendance_report: attendanceReportTool,
+  // HR — candidates
+  add_candidate: addCandidateTool,
+  find_candidates: findCandidatesTool,
+  promote_candidate_to_employee: promoteCandidateTool,
+  // HR — letters
+  draft_hr_letter: draftHrLetterTool,
+  // HR — documents
+  add_hr_document: addHrDocumentTool,
+  find_hr_documents: findHrDocumentsTool,
   // weekly reports — service-block model
   create_weekly_report: createWeeklyReport,
   find_weekly_report: findWeeklyReport,

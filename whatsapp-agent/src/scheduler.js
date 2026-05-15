@@ -516,6 +516,171 @@ async function tickOverdueInvoices(sock, notifyJids, today) {
   }
 }
 
+// =============================================================================
+// HR DOCUMENT EXPIRY WATCHDOG (F1 + F12 combined — both sit on the same date
+// columns, just different source records).
+//
+// Scans team_members.iqama_expiry / passport_expiry / visa_expiry AND every
+// row in hr_documents.expiry_date. Fires WhatsApp DMs at 90 / 60 / 30 / 14 /
+// 7 / 1 days out. Dedup'd via hr_expiry_watchlog (UNIQUE on emp+kind+stage).
+// =============================================================================
+const HR_EXPIRY_STAGES = [
+  { key: '90d', days: 90, tone: 'soft' },
+  { key: '60d', days: 60, tone: 'soft' },
+  { key: '30d', days: 30, tone: 'standard' },
+  { key: '14d', days: 14, tone: 'firm' },
+  { key: '7d',  days: 7,  tone: 'urgent' },
+  { key: '1d',  days: 1,  tone: 'critical' },
+]
+
+async function tickHrExpiries(sock, notifyJids, today) {
+  const fallbackJid = notifyJids[0]
+  if (!fallbackJid) return
+
+  const NOW_MS = Date.parse(today + 'T00:00:00Z')
+
+  // Build candidate set: native team_members columns + the hr_documents library.
+  // We use a single union-style array of { employee_id, employee_name, kind,
+  // expiry_date, source } so the loop below is uniform.
+  const { data: emps } = await supabase
+    .from('team_members')
+    .select('id, full_name, iqama_expiry, passport_expiry, visa_expiry, status')
+    .eq('status', 'active')
+  const candidates = []
+  for (const e of (emps ?? [])) {
+    if (e.iqama_expiry)    candidates.push({ employee_id: e.id, employee_name: e.full_name, kind: 'iqama',    expiry_date: e.iqama_expiry,    document_id: null })
+    if (e.passport_expiry) candidates.push({ employee_id: e.id, employee_name: e.full_name, kind: 'passport', expiry_date: e.passport_expiry, document_id: null })
+    if (e.visa_expiry)     candidates.push({ employee_id: e.id, employee_name: e.full_name, kind: 'visa',     expiry_date: e.visa_expiry,     document_id: null })
+  }
+
+  // Plus every hr_documents row with expiry_date set
+  const { data: docs } = await supabase
+    .from('hr_documents')
+    .select('id, employee_id, doc_type, doc_number, expiry_date, team_members:employee_id (full_name)')
+    .not('expiry_date', 'is', null)
+  for (const d of (docs ?? [])) {
+    candidates.push({
+      employee_id: d.employee_id,
+      employee_name: d.team_members?.full_name ?? '(unknown)',
+      kind: `document:${d.doc_type}`,
+      expiry_date: d.expiry_date,
+      document_id: d.id,
+      doc_number: d.doc_number,
+    })
+  }
+
+  for (const c of candidates) {
+    const expMs = Date.parse(c.expiry_date + 'T00:00:00Z')
+    if (Number.isNaN(expMs)) continue
+    const daysUntil = Math.floor((expMs - NOW_MS) / 86_400_000)
+
+    // Pick the SMALLEST stage threshold that's still ≥ daysUntil.
+    // e.g. at 29 days we want '30d', at 13 days '14d', etc. Array is
+    // descending by .days, so reverse + first-match.
+    if (daysUntil < 0 || daysUntil > 90) continue
+    const stage = [...HR_EXPIRY_STAGES].reverse().find((s) => daysUntil <= s.days)
+    if (!stage) continue
+
+    // Dedupe — UNIQUE (employee_id, kind, stage, expiry_date)
+    const { data: existing } = await supabase
+      .from('hr_expiry_watchlog')
+      .select('id')
+      .eq('employee_id', c.employee_id)
+      .eq('kind', c.kind)
+      .eq('stage', stage.key)
+      .eq('expiry_date', c.expiry_date)
+      .maybeSingle()
+    if (existing) continue
+
+    // Human-friendly kind label
+    const kindLabel = c.kind.startsWith('document:')
+      ? c.kind.slice('document:'.length).replace(/_/g, ' ')
+      : c.kind
+
+    const toneEmoji = { soft: 'ℹ️', standard: '⚠️', firm: '⚠️', urgent: '🚨', critical: '🚨🚨' }[stage.tone] || '⚠️'
+    const summary =
+      `${toneEmoji} ${kindLabel.toUpperCase()} expiring in ${daysUntil}d\n\n` +
+      `Employee: ${c.employee_name}\n` +
+      `Expiry: ${c.expiry_date}` +
+      (c.doc_number ? ` (#${c.doc_number})` : '') + '\n' +
+      `Stage: ${stage.key}\n\n` +
+      `Open /hr/expiries to start the renewal. Reply 'snooze' to silence this until tomorrow.`
+
+    try {
+      await sock.sendMessage(fallbackJid, { text: summary })
+      await supabase.from('hr_expiry_watchlog').insert({
+        employee_id: c.employee_id,
+        document_id: c.document_id,
+        kind: c.kind,
+        stage: stage.key,
+        expiry_date: c.expiry_date,
+        channel: 'whatsapp',
+        status: 'sent',
+      })
+      console.log(`[scheduler/hr-expiry] nagged admin: ${c.employee_name} ${c.kind} → ${stage.key}`)
+    } catch (sendErr) {
+      console.error('[scheduler/hr-expiry] send failed:', sendErr?.message ?? sendErr)
+    }
+  }
+}
+
+// =============================================================================
+// BIRTHDAY + WORK-ANNIVERSARY NUDGE (F13)
+// Fires once on the day-of, deduped via anniversary_nudge_log (UNIQUE on
+// employee_id + kind + year).
+// =============================================================================
+async function tickAnniversaries(sock, notifyJids, today) {
+  const fallbackJid = notifyJids[0]
+  if (!fallbackJid) return
+
+  const [yyyy, mm, dd] = today.split('-')
+  const monthDay = `${mm}-${dd}`
+  const yearInt = parseInt(yyyy, 10)
+
+  const { data: emps } = await supabase
+    .from('team_members')
+    .select('id, full_name, birthday, hire_date, status')
+    .eq('status', 'active')
+
+  for (const e of (emps ?? [])) {
+    // BIRTHDAY
+    if (e.birthday && e.birthday.slice(5) === monthDay) {
+      const { data: dup } = await supabase
+        .from('anniversary_nudge_log')
+        .select('id').eq('employee_id', e.id).eq('kind', 'birthday').eq('year_int', yearInt).maybeSingle()
+      if (!dup) {
+        await sock.sendMessage(fallbackJid, {
+          text: `🎂 Today is ${e.full_name}'s birthday!\n\nSend a wish? Quick template:\n\n"كل عام وأنت بخير ${e.full_name}، يومٌ سعيد ومليء بالخير 🎉 — فريق Emergize"`,
+        }).catch(() => null)
+        await supabase.from('anniversary_nudge_log').insert({
+          employee_id: e.id, kind: 'birthday', year_int: yearInt,
+        }).catch(() => null)
+        console.log(`[scheduler/anniv] birthday: ${e.full_name}`)
+      }
+    }
+    // WORK ANNIVERSARY (hire_date month+day matches today)
+    if (e.hire_date && e.hire_date.slice(5) === monthDay) {
+      const hireYear = parseInt(e.hire_date.slice(0, 4), 10)
+      const yearsServed = yearInt - hireYear
+      if (yearsServed >= 1) {
+        const { data: dup } = await supabase
+          .from('anniversary_nudge_log')
+          .select('id').eq('employee_id', e.id).eq('kind', 'work_anniversary').eq('year_int', yearInt).maybeSingle()
+        if (!dup) {
+          const yLabel = yearsServed === 1 ? '1 year' : `${yearsServed} years`
+          await sock.sendMessage(fallbackJid, {
+            text: `🎉 ${e.full_name} just hit ${yLabel} at Emergize today!\n\nWorth a short note + maybe a small bonus. Template:\n\n"شكراً لك ${e.full_name} على ${yLabel} من العطاء — استمر في الإبداع 🚀 — فريق Emergize"`,
+          }).catch(() => null)
+          await supabase.from('anniversary_nudge_log').insert({
+            employee_id: e.id, kind: 'work_anniversary', year_int: yearInt,
+          }).catch(() => null)
+          console.log(`[scheduler/anniv] work-anniversary: ${e.full_name} ${yearsServed}yr`)
+        }
+      }
+    }
+  }
+}
+
 export async function startScheduler(sock, notifyJids) {
   if (started) return
   started = true
@@ -564,6 +729,16 @@ export async function startScheduler(sock, notifyJids) {
       await tickOverdueInvoices(sock, jids, today)
     } catch (err) {
       console.error('[scheduler] overdue-invoices tick error:', err?.message ?? err)
+    }
+    try {
+      await tickHrExpiries(sock, jids, today)
+    } catch (err) {
+      console.error('[scheduler] hr-expiries tick error:', err?.message ?? err)
+    }
+    try {
+      await tickAnniversaries(sock, jids, today)
+    } catch (err) {
+      console.error('[scheduler] anniversaries tick error:', err?.message ?? err)
     }
   }
 

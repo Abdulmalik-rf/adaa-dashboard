@@ -1952,6 +1952,412 @@ const billsTools = [
 ]
 
 // =============================================================================
+// HR — leave + attendance + payroll + EOSB + onboarding + CV intake + letters
+// + documents + expiry watchdog tools (features F1–F13).
+// =============================================================================
+
+const hrTools = [
+  // ------- Leave (F2 + F3) --------
+  {
+    type: 'function',
+    function: {
+      name: 'request_leave_for_self',
+      description:
+        "Submit a leave request on behalf of the WhatsApp sender. The tool resolves the sender's phone → team_members.whatsapp → employee row, then creates a leave_requests entry as 'pending' and DMs the admin with the draft + a conflict-risk summary (who else is on leave that week, tasks/reports due in the window assigned to this employee). Use when an employee says \"can I take Aug 15-19 off, cousin's wedding\" or similar.",
+      parameters: {
+        type: 'object',
+        properties: {
+          start_date: { type: 'string', description: 'ISO YYYY-MM-DD. Required.' },
+          end_date: { type: 'string', description: 'ISO YYYY-MM-DD. Required.' },
+          type: {
+            type: 'string',
+            enum: ['annual','sick','unpaid','personal','maternity','paternity','bereavement','hajj','other'],
+            description: "If unclear, infer from context — wedding/holiday → 'annual', funeral → 'bereavement', illness → 'sick', hajj season → 'hajj', etc. Default 'annual'.",
+          },
+          reason: { type: 'string' },
+          override_employee_id: { type: 'string', description: 'Optional. If admin is filing on someone else\'s behalf, pass the target employee\'s UUID instead of resolving from sender.' },
+        },
+        required: ['start_date', 'end_date'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_leave_requests',
+      description: 'List or search leave_requests. Use for "any pending leaves?", "show Ahmad\'s leave history".',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['pending','approved','rejected','cancelled'] },
+          employee_id: { type: 'string' },
+          employee_name: { type: 'string', description: 'Fuzzy match on team_members.full_name.' },
+          from_date: { type: 'string' },
+          to_date: { type: 'string' },
+          limit: { type: 'integer', description: 'Default 10.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'approve_leave',
+      description:
+        "Approve a pending leave request. Flips status → 'approved' AND decrements the employee's annual_leave_balance (for type='annual' only). Admin-only.",
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'leave_requests.id (UUID).' },
+          decision_note: { type: 'string', description: 'Optional note shown to employee.' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'reject_leave',
+      description: 'Reject a pending leave request. Admin-only.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          decision_note: { type: 'string', description: 'Reason — required.' },
+        },
+        required: ['id', 'decision_note'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_leave_conflicts',
+      description:
+        'Standalone conflict checker — useful when admin asks "anyone on leave next week?" without a specific request to evaluate. Returns the same overlap + workload summary the approval card uses.',
+      parameters: {
+        type: 'object',
+        properties: {
+          start_date: { type: 'string' },
+          end_date: { type: 'string' },
+          employee_id: { type: 'string', description: 'Optional. If set, also reports that employee\'s tasks/reports due in the window.' },
+        },
+        required: ['start_date', 'end_date'],
+      },
+    },
+  },
+
+  // ------- Payroll + EOSB (F4 + F5) --------
+  {
+    type: 'function',
+    function: {
+      name: 'generate_payroll',
+      description:
+        'Build the monthly payroll run for every active employee. For each row computes: base_salary + allowances + bonuses − GOSI (9% if gosi_subject="saudi", 2% if "expat") − prorated unpaid leave days, with a payroll_line_items breakdown. Re-running for the same month overwrites pending rows; paid rows are left alone.',
+      parameters: {
+        type: 'object',
+        properties: {
+          year: { type: 'integer' },
+          month: { type: 'integer', description: '1..12' },
+        },
+        required: ['year', 'month'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mark_payroll_paid',
+      description: 'Flip a single payroll_records row to status="paid", stamp paid_date + method. Optionally fires the salary slip via send_salary_slip.',
+      parameters: {
+        type: 'object',
+        properties: {
+          payroll_id: { type: 'string' },
+          paid_date: { type: 'string', description: 'ISO. Defaults to today.' },
+          method: { type: 'string', description: "'bank_transfer' / 'cash' / 'cheque'" },
+          notes: { type: 'string' },
+          send_slip: { type: 'boolean', description: 'If true, also call send_salary_slip after marking paid. Default true.' },
+        },
+        required: ['payroll_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_payroll',
+      description: 'List payroll records for an employee or a month.',
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_id: { type: 'string' },
+          employee_name: { type: 'string' },
+          year: { type: 'integer' },
+          month: { type: 'integer' },
+          status: { type: 'string', enum: ['pending', 'paid', 'cancelled'] },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'compute_eosb',
+      description:
+        "Compute today's accrued end-of-service balance for an employee following KSA labour-law rules (0.5 month salary per year for the first 5 years, 1 month per year thereafter). Snapshots the result in eosb_snapshots. Use for cash-flow planning or before terminations.",
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_id: { type: 'string' },
+          employee_name: { type: 'string' },
+          as_of_date: { type: 'string', description: 'ISO. Default today.' },
+        },
+      },
+    },
+  },
+
+  // ------- Salary slip (F6) --------
+  {
+    type: 'function',
+    function: {
+      name: 'send_salary_slip',
+      description:
+        'Generate a bilingual Arabic+English salary slip PDF for a paid payroll record and deliver it to the employee via WhatsApp + email. Re-running re-generates and re-sends.',
+      parameters: {
+        type: 'object',
+        properties: {
+          payroll_id: { type: 'string' },
+          channel: { type: 'string', enum: ['whatsapp', 'email', 'both'], description: "Default 'both'." },
+        },
+        required: ['payroll_id'],
+      },
+    },
+  },
+
+  // ------- Onboarding (F7) --------
+  {
+    type: 'function',
+    function: {
+      name: 'start_onboarding',
+      description:
+        "Create an onboarding checklist for a freshly-added team_member. Auto-picks template from employment_type + nationality (Saudi vs expat differs on GOSI / iqama steps). Inserts one onboarding_checklist_items row per step. Use right after add_team_member.",
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_id: { type: 'string' },
+          template: {
+            type: 'string',
+            enum: ['saudi_full_time','expat_full_time','part_time','intern','contractor'],
+            description: 'Optional override. If omitted, picked from employee fields.',
+          },
+        },
+        required: ['employee_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mark_onboarding_item_done',
+      description: 'Flip a single onboarding item to done.',
+      parameters: {
+        type: 'object',
+        properties: { item_id: { type: 'string' } },
+        required: ['item_id'],
+      },
+    },
+  },
+
+  // ------- 1-on-1 performance brief (F8) --------
+  {
+    type: 'function',
+    function: {
+      name: 'performance_brief',
+      description:
+        "Generate a per-employee 1-on-1 brief covering the past N days: tasks closed, clients touched, content posted, weekly reports authored, leave taken, late check-ins. Returns the brief text + sourced metrics for the manager to use in a 1:1 conversation. Default period = 30 days.",
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_id: { type: 'string' },
+          employee_name: { type: 'string' },
+          days: { type: 'integer', description: 'Lookback window. Default 30.' },
+        },
+      },
+    },
+  },
+
+  // ------- Attendance (F9) --------
+  {
+    type: 'function',
+    function: {
+      name: 'log_attendance',
+      description:
+        'Record an employee\'s check-in / check-out / WFH / late status. Use when an employee DMs "in", "out", "WFH", "running 30 min late", "out for lunch", etc. Resolves employee from sender\'s WhatsApp phone unless override_employee_id is given. One attendance_logs row per (employee, date) — subsequent DMs update the row.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['check_in','check_out','wfh','late','absent'] },
+          late_minutes: { type: 'integer', description: 'Required when action=late.' },
+          notes: { type: 'string' },
+          override_employee_id: { type: 'string' },
+          log_date: { type: 'string', description: "ISO. Default today." },
+        },
+        required: ['action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'attendance_report',
+      description: 'Monthly attendance + lateness report. Returns per-employee totals: days present, WFH, late count, total late minutes, absences. Useful before payroll.',
+      parameters: {
+        type: 'object',
+        properties: {
+          year: { type: 'integer' },
+          month: { type: 'integer' },
+          employee_id: { type: 'string' },
+        },
+      },
+    },
+  },
+
+  // ------- CV intake (F10) --------
+  {
+    type: 'function',
+    function: {
+      name: 'add_candidate',
+      description:
+        "Create a candidate record from a CV. Use when admin forwards a candidate's CV PDF (the [uploaded_document: …] block contains the extracted text). Extract: full_name, email/phone/whatsapp, current_title, years_experience, education, skills (array), languages (array), asking_salary if mentioned, nationality if visible.",
+      parameters: {
+        type: 'object',
+        properties: {
+          full_name: { type: 'string' },
+          email: { type: 'string' },
+          phone: { type: 'string' },
+          whatsapp: { type: 'string' },
+          nationality: { type: 'string' },
+          current_city: { type: 'string' },
+          current_title: { type: 'string' },
+          years_experience: { type: 'number' },
+          education: { type: 'string' },
+          skills: { type: 'array', items: { type: 'string' } },
+          languages: { type: 'array', items: { type: 'string' } },
+          asking_salary: { type: 'number' },
+          salary_currency: { type: 'string', description: "Default 'SAR'." },
+          cv_url: { type: 'string', description: 'URL from uploaded_document tag.' },
+          cv_text: { type: 'string', description: 'Extracted PDF text (truncated if very long).' },
+          notes: { type: 'string' },
+        },
+        required: ['full_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_candidates',
+      description: 'Search candidates by status, name, or skill keyword.',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['new','reviewing','interviewing','offered','hired','rejected','archived'] },
+          q: { type: 'string', description: 'Match full_name / current_title / cv_text.' },
+          skill: { type: 'string' },
+          limit: { type: 'integer' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'promote_candidate_to_employee',
+      description:
+        "Convert a candidate row into a real team_members row. Copies name/email/phone/whatsapp/nationality. Sets status='active' on team_member, sets candidate.status='hired' + stamps promoted_to_team_member_id. Automatically kicks off start_onboarding.",
+      parameters: {
+        type: 'object',
+        properties: {
+          candidate_id: { type: 'string' },
+          job_title: { type: 'string' },
+          base_salary: { type: 'number' },
+          hire_date: { type: 'string', description: 'ISO. Default today.' },
+          employment_type: { type: 'string', enum: ['full_time','part_time','contractor','intern'] },
+        },
+        required: ['candidate_id'],
+      },
+    },
+  },
+
+  // ------- HR letters (F11) --------
+  {
+    type: 'function',
+    function: {
+      name: 'draft_hr_letter',
+      description:
+        "Draft a KSA labour-law-aware HR letter (verbal/written/final warning, termination, salary certificate, employment letter, NOC, experience letter). Returns bilingual Arabic+English body referencing the relevant labour-law articles. Saves a draft to hr_letters that admin can review on /hr/letters before flipping to 'sent'.",
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_id: { type: 'string' },
+          employee_name: { type: 'string' },
+          letter_type: {
+            type: 'string',
+            enum: ['verbal_warning','written_warning','final_warning','termination','salary_certificate','employment_letter','noc','experience_letter','custom'],
+          },
+          subject: { type: 'string', description: 'Short subject line.' },
+          context: { type: 'string', description: 'What happened / why this letter — used to draft the body.' },
+          reference_clauses: { type: 'array', items: { type: 'string' }, description: 'Optional. Specific KSA Labour Law article numbers to cite.' },
+        },
+        required: ['letter_type', 'subject'],
+      },
+    },
+  },
+
+  // ------- HR documents (F12) --------
+  {
+    type: 'function',
+    function: {
+      name: 'add_hr_document',
+      description:
+        "Record an HR document upload (passport / iqama / visa / national_id / employment contract / GOSI cert / etc.). When admin forwards a document PDF or photo to the agent, extract the OCR text + expiry date if visible + document number, then call this. The expiry watchdog (F1) auto-tracks the new entry.",
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_id: { type: 'string' },
+          employee_name: { type: 'string' },
+          doc_type: { type: 'string', enum: ['passport','iqama','visa','national_id','employment_contract','gosi_certificate','medical_insurance','driving_license','certificate','other'] },
+          file_url: { type: 'string' },
+          file_path: { type: 'string', description: 'Storage path. Required if file_url is not directly under content-uploads bucket.' },
+          doc_number: { type: 'string' },
+          issue_date: { type: 'string' },
+          expiry_date: { type: 'string' },
+          notes: { type: 'string' },
+          ocr_text: { type: 'string' },
+        },
+        required: ['doc_type', 'file_url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_hr_documents',
+      description: 'List HR documents for one employee or all expiring within a window.',
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_id: { type: 'string' },
+          doc_type: { type: 'string' },
+          expiring_within_days: { type: 'integer', description: 'Filter to docs expiring within N days.' },
+        },
+      },
+    },
+  },
+]
+
+// =============================================================================
 // AGENCY SETTINGS (one-row config table — agency name, support email, etc.)
 // =============================================================================
 
@@ -2351,6 +2757,7 @@ export const tools = [
   ...accountingTools,
   ...nagsTools,
   ...billsTools,
+  ...hrTools,
   ...powerTools,
   ...devTools,
 ]

@@ -1,8 +1,8 @@
 {
-  "name": "adaa-whatsapp-agent",
+  "name": "emergize-whatsapp-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "WhatsApp -> ChatGPT Codex -> Adaa dashboard agent",
+  "description": "WhatsApp -> ChatGPT Codex -> Emergize dashboard agent",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
@@ -18,5 +18,8 @@
     "puppeteer": "^24.0.0",
     "qrcode-terminal": "^0.12.0",
     "unpdf": "^1.6.2"
+  },
+  "devDependencies": {
+    "qrcode": "^1.5.4"
   }
 }

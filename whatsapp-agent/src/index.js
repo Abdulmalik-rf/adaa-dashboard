@@ -14,6 +14,7 @@ import { runTool } from './tools/executors.js'
 import { withRequest } from './context.js'
 import { extractText as pdfExtractText, getDocumentProxy } from 'unpdf'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { supabase } from './supabase.js'
 
 const makeWASocket = baileys.default ?? baileys.makeWASocket ?? baileys
 
@@ -68,7 +69,14 @@ for (const u of USERS) {
 // the bot without saving its number as a contact.
 const LEARNED_LIDS = new Set()
 
-if (ALLOWED_SET.size === 0) throw new Error('Missing ALLOWED_PHONE (or ALLOWED_LID) in env')
+// ALLOWED_SET is now the EXPLICIT ADMIN whitelist — phones / LIDs in here
+// are always treated as admin, regardless of the team_members table. Other
+// senders get classified at message time: 'employee' (phone matches a row
+// in team_members) or 'public' (everyone else). The agent serves all three
+// tiers but constrains the prompt + tool surface accordingly.
+if (ALLOWED_SET.size === 0) {
+  console.warn('[warn] no ALLOWED_PHONE configured — admin tier will rely solely on team_members.role=admin')
+}
 if (!process.env.OPENAI_CHATGPT_TOKEN) throw new Error('Missing OPENAI_CHATGPT_TOKEN in env')
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -300,31 +308,56 @@ async function handleOne(sock, msg) {
 
   const sender = jid.split('@')[0]
 
-  if (!ALLOWED_SET.has(sender)) {
-    // Before rejecting, try to learn this LID. Modern baileys exposes the
-    // sender's phone number alongside the LID for non-contact senders, in
-    // various message-shape locations depending on version. If the phone
-    // resolves to one of our configured ALLOWED_PHONES, we accept the
-    // message and cache the LID for the rest of this process lifetime.
-    // Future restarts re-learn — fine because the LID is stable per device.
-    const phoneCandidate = extractSenderPhone(msg)
-    if (phoneCandidate && ALLOWED_PHONES.has(phoneCandidate)) {
+  // ---- Sender classification — 3 tiers: admin / employee / public ----
+  // We no longer reject anyone. Strangers get a customer-service tier; team
+  // members get HR self-service; admins get the full destructive toolkit.
+  // The senderRole + senderEmployeeId are passed downstream via withRequest()
+  // so the agent system prompt can branch and the tool executors can gate.
+  let senderRole = 'public'
+  let senderEmployeeId = null
+  let senderEmployeeName = null
+
+  const phoneCandidate = extractSenderPhone(msg)
+
+  if (ALLOWED_SET.has(sender) || (phoneCandidate && ALLOWED_PHONES.has(phoneCandidate))) {
+    senderRole = 'admin'
+    // Auto-learn LID for known-phone admins (same behaviour as before)
+    if (phoneCandidate && ALLOWED_PHONES.has(phoneCandidate) && !ALLOWED_SET.has(sender)) {
       ALLOWED_SET.add(sender)
       LEARNED_LIDS.add(sender)
-      // Route any future incoming-id reference for this LID back to the
-      // user's original configured notify JID, so reminders/scheduling
-      // keep working consistently.
       const notifyJid = PHONE_TO_NOTIFY_JID.get(phoneCandidate)
       if (notifyJid) SENDER_TO_NOTIFY_JID.set(sender, notifyJid)
-      console.log(`[learn] LID ${sender} -> phone ${phoneCandidate} (auto-learned, allowing)`)
-    } else {
-      // Log once per unknown sender so we can capture LIDs of newly-added users
-      // before they exist in the env. Prefix lets you grep for it. We don't
-      // reply — silent rejection is the right policy for unauthorized senders.
-      console.log(`[reject] sender=${sender} jid=${jid} (not in ALLOWED_SET, phoneCandidate=${phoneCandidate ?? 'unknown'})`)
-      return
+      console.log(`[learn] LID ${sender} -> phone ${phoneCandidate} (admin, auto-learned)`)
+    }
+  } else {
+    // Look up the sender in team_members. Match by suffix on the phone
+    // (last 9 digits, KSA convention). If admin role on the row, escalate
+    // to admin; otherwise employee.
+    const digitsTail = String(sender).replace(/\D/g, '').slice(-9)
+    const phoneTail = phoneCandidate ? String(phoneCandidate).replace(/\D/g, '').slice(-9) : null
+    try {
+      const { data: members } = await supabase
+        .from('team_members')
+        .select('id, full_name, role, whatsapp, phone, status')
+        .eq('status', 'active')
+      for (const m of (members ?? [])) {
+        const wa = String(m.whatsapp || '').replace(/\D/g, '')
+        const ph = String(m.phone || '').replace(/\D/g, '')
+        const matches = (digits) => digits && (wa.endsWith(digits) || ph.endsWith(digits))
+        if (matches(digitsTail) || matches(phoneTail)) {
+          senderEmployeeId = m.id
+          senderEmployeeName = m.full_name
+          senderRole = m.role === 'admin' ? 'admin' : 'employee'
+          break
+        }
+      }
+    } catch (lookupErr) {
+      // DB read failed — keep as public, log for diagnosis
+      console.warn('[sender-classify] team_members lookup failed:', lookupErr?.message)
     }
   }
+
+  console.log(`[accept] sender=${sender} jid=${jid} role=${senderRole}${senderEmployeeName ? ' (' + senderEmployeeName + ')' : ''}`)
 
   // Reply target — the JID to send the agent's response back on. This is
   // also the JID we tag onto reminders the user creates this turn.
@@ -373,7 +406,7 @@ async function handleOne(sock, msg) {
   // Run the entire handler inside an async-local request scope so deep
   // executors (add_reminder, send_quotation_pdf, etc.) can resolve the
   // current sender's JID without their signatures growing a sender param.
-  const reply = await withRequest({ senderJid: replyJid, sender }, () =>
+  const reply = await withRequest({ senderJid: replyJid, sender, senderRole, senderEmployeeId, senderEmployeeName }, () =>
     handleMessage(text, { images, imageUrls, documents, sender }),
   )
   await sock.sendMessage(jid, { text: reply })

@@ -1,6 +1,6 @@
-# Adaa WhatsApp Agent
+# Emergize WhatsApp Agent
 
-Lets you add things to the Adaa CRM by sending WhatsApp messages to your own number.
+Lets you add things to the Emergize CRM by sending WhatsApp messages to your own number.
 
 ```
 You -> WhatsApp -> this agent -> GPT (tool use) -> Supabase (same DB as the dashboard)
@@ -131,8 +131,8 @@ npm i -g pm2
 ### 2. Deploy the code
 
 ```bash
-git clone <your repo> /opt/adaa
-cd /opt/adaa/temp_zip_agency/whatsapp-agent
+git clone <your repo> /opt/emergize
+cd /opt/emergize/temp_zip_agency/whatsapp-agent
 npm install
 cp .env.example .env
 nano .env   # fill in OPENAI_CHATGPT_TOKEN, SUPABASE_*, ALLOWED_PHONE, DASHBOARD_URL, REVALIDATE_SECRET
@@ -151,12 +151,12 @@ Scan the QR with your phone, wait for `Agent ready`, then Ctrl+C.
 ### 4. Run under pm2
 
 ```bash
-pm2 start src/index.js --name adaa-agent
+pm2 start src/index.js --name emergize-agent
 pm2 save
 pm2 startup    # follow the printed command to enable boot-start
 ```
 
-Logs: `pm2 logs adaa-agent`. The `.wwebjs_auth/` folder keeps the session — don't delete it or you'll have to scan the QR again.
+Logs: `pm2 logs emergize-agent`. The `.wwebjs_auth/` folder keeps the session — don't delete it or you'll have to scan the QR again.
 
 ## Security notes
 

@@ -2990,15 +2990,19 @@ async function pushBillTool(input) {
 // approve/reject/destructively act on anyone else's data.
 async function _isAdminSender(ctxOverride = null) {
   const ctx = ctxOverride ?? getRequest()
-  if (!ctx?.senderJid) return false
+  if (!ctx) return false
 
-  // Allowed admin JIDs from env (comma-separated). This is the same source the
-  // scheduler uses for notifyJids — so anyone who receives the proactive nags
-  // is by definition an admin.
+  // Fast path: src/index.js already classified the sender into senderRole.
+  // Trust that — it's done once at message receipt, cached for the whole
+  // tool-loop turn.
+  if (ctx.senderRole === 'admin') return true
+  if (ctx.senderRole === 'employee' || ctx.senderRole === 'public') return false
+
+  // Fallback (legacy callers that don't pass senderRole — should be rare):
+  if (!ctx.senderJid) return false
   const envAdmins = String(process.env.NOTIFY_JIDS || process.env.ADMIN_JIDS || '')
     .split(',').map((s) => s.trim()).filter(Boolean)
   if (envAdmins.includes(ctx.senderJid)) return true
-
   const digits = String(ctx.senderJid).split('@')[0].replace(/\D/g, '')
   if (!digits) return false
   const tail = digits.slice(-9)
@@ -3006,8 +3010,6 @@ async function _isAdminSender(ctxOverride = null) {
     const jd = j.split('@')[0].replace(/\D/g, '')
     if (jd && (jd.endsWith(tail) || tail.endsWith(jd.slice(-9)))) return true
   }
-
-  // Or anyone with role='admin' on team_members
   const { data: emp } = await supabase
     .from('team_members').select('id, role, whatsapp, phone, status').eq('status', 'active')
   for (const e of (emp ?? [])) {
@@ -3017,6 +3019,16 @@ async function _isAdminSender(ctxOverride = null) {
     if ((wa && wa.endsWith(tail)) || (ph && ph.endsWith(tail))) return true
   }
   return false
+}
+
+// Helper for "employee-or-admin" gate. Public users can NOT call HR self-service
+// tools that touch real employee data (my_payroll, my_documents, etc.) because
+// they aren't in team_members. Public users can use the agent for general
+// questions only — see the public-tier prompt section.
+async function _requireEmployeeOrAdmin() {
+  const ctx = getRequest()
+  if (ctx?.senderRole === 'admin' || ctx?.senderRole === 'employee') return
+  throw new Error("Sorry — I can't share that here. Reach out at info@emergize-sa.com and someone from the team will help.")
 }
 
 // Throw if caller isn't admin. Use at the top of any destructive HR tool that

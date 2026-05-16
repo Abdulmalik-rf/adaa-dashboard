@@ -192,6 +192,7 @@ export const dictionaries = {
     hrPerformanceNav: "Performance",
     hrAttendanceNav: "Attendance",
     hrEosbNav: "EOSB",
+    hrLoansNav: "Loans",
     // Notifications
     notificationsHeader: "Notifications",
     unread: "unread",
@@ -394,6 +395,7 @@ export const dictionaries = {
     hrPerformanceNav: "الأداء",
     hrAttendanceNav: "الحضور",
     hrEosbNav: "نهاية الخدمة",
+    hrLoansNav: "القروض",
     // Notifications
     notificationsHeader: "الإشعارات",
     unread: "غير مقروءة",

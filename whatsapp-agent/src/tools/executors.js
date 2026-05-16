@@ -3987,17 +3987,67 @@ async function promoteCandidateTool(input) {
 
 // ---- F11: HR letters ---------------------------------------------------------
 
+// KSA Labour Law references per document type — auto-filled when admin doesn't
+// override. Receivers (banks, embassies, MoL) expect to see these on disciplinary,
+// termination, and EOSB-related correspondence.
 const KSA_LABOUR_LAW_CLAUSES = {
-  verbal_warning:   ['Article 80 (employer\'s right to terminate without notice for repeated breach)'],
-  written_warning:  ['Article 80', 'Article 65 (employee\'s general obligations)'],
+  // Discipline
+  verbal_warning:   ['Article 80 (employer\'s right to terminate without notice for repeated breach)', 'Article 65 (employee\'s general obligations)'],
+  written_warning:  ['Article 80', 'Article 65'],
   final_warning:    ['Article 80', 'Article 65'],
+  suspension_letter:    ['Article 81 (suspension during investigation)'],
+  disciplinary_notice:  ['Article 65', 'Article 80'],
   termination:      ['Article 80', 'Article 77 (severance + EOSB)', 'Article 84 (end-of-service award)'],
-  salary_certificate: [],
-  employment_letter: [],
-  noc:              [],
-  experience_letter: [],
+  // Compensation/EOSB
+  final_settlement_letter: ['Article 84 (end-of-service award)', 'Article 88 (final settlement timing)'],
+  retirement_letter: ['Article 84', 'GOSI Pension Law'],
+  // Leave
+  maternity_leave_letter: ['Article 151 (10 weeks paid maternity leave)'],
+  paternity_leave_letter: ['Article 113 (3 days paternity leave)'],
+  hajj_leave_letter: ['Article 114 (10-15 days hajj leave, once per service)'],
+  sick_leave_notice: ['Article 117 (sick-leave entitlement: 30d full pay, 60d 75%, 30d unpaid)'],
+  bereavement_leave_letter: ['Article 113 (bereavement leave)'],
+  // External / financial
+  bank_loan_support_letter: [],
+  visa_support_letter: [],
+  loan_request_letter: ['Article 92 (deductions from salary, max 50%)'],
+  salary_advance_letter: ['Article 92'],
+  // Hiring
+  employment_contract: ['Article 50 (written contract requirement)', 'Article 53 (contract content)'],
+  job_offer: ['Article 50'],
+  nda: ['Article 65 (confidentiality)', 'Article 83 (post-employment non-compete)'],
+  probation_completion: ['Article 53 (max 90-day probation, optional 90-day extension)'],
+  // Saudization / GOSI
+  hrdf_letter: ['HRDF training program regulations'],
+  gosi_subscription_letter: ['GOSI Law Article 4'],
+  saudization_letter: ['Nitaqat program rules'],
+  // Catch-all
   custom:           [],
 }
+
+// Helpers used by every template
+function _empName(emp, ar = false) {
+  if (ar && emp.full_name_ar) return emp.full_name_ar
+  return emp.full_name || '—'
+}
+function _empTitle(emp, ar = false) {
+  if (ar && emp.job_title_ar) return emp.job_title_ar
+  return emp.job_title || '—'
+}
+function _empIdLine(emp, ar = false) {
+  if (emp.iqama_number) return ar ? `(إقامة ${emp.iqama_number})` : `(Iqama ${emp.iqama_number})`
+  if (emp.national_id) return ar ? `(هوية ${emp.national_id})` : `(National ID ${emp.national_id})`
+  return ''
+}
+function _refsLine(refs, ar = false) {
+  if (!refs?.length) return ''
+  return ar ? `المراجع: ${refs.join(' · ')}` : `References: ${refs.join(' · ')}`
+}
+function _money(n, cur = 'SAR') {
+  return `${Number(n ?? 0).toLocaleString('en-US')} ${cur}`
+}
+function _signEn() { return 'Signed,\nEmergize HR\ninfo@emergize-sa.com' }
+function _signAr() { return 'التوقيع،\nالموارد البشرية - إيميرجايز\ninfo@emergize-sa.com' }
 
 async function draftHrLetterTool(input) {
   await _requireAdmin()
@@ -4006,15 +4056,15 @@ async function draftHrLetterTool(input) {
   if (!empId) throw new Error('Specify employee_id or employee_name.')
 
   const { data: emp } = await supabase.from('team_members')
-    .select('id, full_name, full_name_ar, job_title, job_title_ar, department, hire_date, base_salary, salary_currency, nationality, iqama_number, national_id, gosi_subject')
+    .select('id, full_name, full_name_ar, job_title, job_title_ar, department, hire_date, base_salary, salary_currency, housing_allowance, transport_allowance, other_allowances, nationality, iqama_number, national_id, gosi_subject')
     .eq('id', empId).maybeSingle()
   if (!emp) throw new Error('employee not found')
 
   const refs = input.reference_clauses?.length ? input.reference_clauses : KSA_LABOUR_LAW_CLAUSES[input.letter_type] || []
   const today = new Date().toISOString().slice(0, 10)
-  const ctx = input.context ? `\n\nContext: ${input.context}` : ''
+  const meta = input.meta || {}
 
-  const bodies = _renderLetterBody(input.letter_type, emp, input.subject, input.context, refs, today)
+  const bodies = _renderLetterBody(input.letter_type, emp, input.subject, input.context, refs, today, meta)
 
   const { data: letter, error } = await supabase.from('hr_letters').insert({
     employee_id: empId,
@@ -4024,10 +4074,21 @@ async function draftHrLetterTool(input) {
     body_ar: bodies.ar,
     reference_clauses: refs,
     status: 'draft',
+    meta,
   }).select('id').single()
   if (error) throw new Error(`draft letter failed: ${error.message}`)
 
-  await revalidate(['/hr/letters'])
+  // Notify the HR admin (broadcast — picked up by /notifications page).
+  await supabase.from('notifications').insert({
+    user_id: null,
+    title: `HR letter drafted: ${input.letter_type.replace(/_/g, ' ')} for ${emp.full_name}`,
+    message: (input.subject || '').slice(0, 300) + ' — review at /hr/letters/' + letter.id,
+    type: 'hr_letter_draft',
+    related_id: letter.id,
+    is_read: false,
+  }).catch(() => null)
+
+  await revalidate(['/hr/letters', '/notifications'])
   return {
     letter_id: letter.id,
     letter_type: input.letter_type,
@@ -4038,53 +4099,343 @@ async function draftHrLetterTool(input) {
   }
 }
 
-function _renderLetterBody(type, emp, subject, context, refs, today) {
-  const refsLine = refs.length ? `References: ${refs.join(' · ')}` : ''
-  const refsLineAr = refs.length ? `المراجع: ${refs.join(' · ')}` : ''
+// =============================================================================
+// HR letter template catalog — bilingual EN/AR, KSA-labour-law-aware.
+// Every letter is rendered via _renderLetterBody(type, emp, subject, context,
+// refs, today, meta). `meta` carries type-specific payload (loan amount,
+// vacation dates, transfer dest, etc.) — see request schema in definitions.js.
+// =============================================================================
+function _renderLetterBody(type, emp, subject, context, refs, today, meta = {}) {
+  const nameEn = _empName(emp, false), nameAr = _empName(emp, true)
+  const titleEn = _empTitle(emp, false), titleAr = _empTitle(emp, true)
+  const idEn = _empIdLine(emp, false), idAr = _empIdLine(emp, true)
+  const refsLine = _refsLine(refs, false), refsLineAr = _refsLine(refs, true)
   const ctxLine = context ? `\n\n${context}` : ''
   const ctxLineAr = context ? `\n\n${context}` : ''
+  const dept = emp.department ? `, ${emp.department}` : ''
+  const deptAr = emp.department ? `، قسم ${emp.department}` : ''
+  const salary = _money(emp.base_salary, emp.salary_currency || 'SAR')
+
+  // Build common preamble/signature blocks
+  const hdr = (titleLine) => `${titleLine}\n\nDate: ${today}\nTo: ${nameEn}${titleEn !== '—' ? `, ${titleEn}` : ''}${dept} ${idEn}\nSubject: ${subject || titleLine}\n`
+  const hdrAr = (titleLine) => `${titleLine}\n\nالتاريخ: ${today}\nإلى: ${nameAr}${titleAr !== '—' ? `، ${titleAr}` : ''}${deptAr} ${idAr}\nالموضوع: ${subject || titleLine}\n`
 
   switch (type) {
+    // ---- HIRING / ONBOARDING ------------------------------------------------
+    case 'job_offer':
+      return {
+        en: `${hdr('Job Offer Letter')}\nDear ${nameEn},\n\nWe are pleased to offer you the position of ${meta.proposed_title || titleEn} at Emergize, with a monthly gross salary of ${_money(meta.proposed_salary || emp.base_salary, emp.salary_currency)}${meta.proposed_start ? `, starting ${meta.proposed_start}` : ''}. Other terms (allowances, leave, probation period, working hours) are governed by your employment contract and the Saudi Labour Law.${ctxLine}\n\nThis offer is valid for 7 days from the date above. To accept, please countersign and return this letter.\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('عرض عمل')}\nالأخ/ت ${nameAr}،\n\nيسعدنا تقديم عرض العمل لشغل وظيفة ${meta.proposed_title || titleAr} لدى إيميرجايز، براتب شهري إجمالي قدره ${_money(meta.proposed_salary || emp.base_salary, emp.salary_currency)}${meta.proposed_start ? `، تبدأ من ${meta.proposed_start}` : ''}. تخضع باقي البنود (البدلات، الإجازات، فترة التجربة، ساعات العمل) لعقد العمل ولنظام العمل في المملكة العربية السعودية.${ctxLineAr}\n\nهذا العرض ساري لمدة 7 أيام من تاريخه. للقبول، يُرجى التوقيع وإعادة هذه الرسالة.\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'employment_contract':
+      return {
+        en: `${hdr('Employment Contract')}\n\nThis contract is entered into between Emergize ("Employer") and ${nameEn} ${idEn} ("Employee"), effective ${emp.hire_date || today}. Position: ${titleEn}. Monthly salary: ${salary} (plus allowances as itemized in Schedule A). Working hours: 40/week. Probation: 90 days from start date. Annual leave: 21 days. Sick leave per KSA Labour Law Article 117. Termination per Articles 74–88. Full terms attached.${ctxLine}\n\n${refsLine}\n\n${_signEn()}\n\n_____________________   _____________________\nEmployer signature           Employee signature`,
+        ar: `${hdrAr('عقد عمل')}\n\nأُبرم هذا العقد بين شركة إيميرجايز ("صاحب العمل") و${nameAr} ${idAr} ("الموظف")، اعتباراً من ${emp.hire_date || today}. المنصب: ${titleAr}. الراتب الشهري: ${salary} (مع البدلات الموضحة في الملحق أ). ساعات العمل: 40/أسبوع. التجربة: 90 يوماً من تاريخ المباشرة. الإجازة السنوية: 21 يوماً. الإجازة المرضية وفق المادة 117 من نظام العمل. الإنهاء وفق المواد 74-88. كامل البنود مرفق.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}\n\n_____________________   _____________________\nتوقيع صاحب العمل           توقيع الموظف`,
+      }
+
+    case 'employment_letter':
+      return {
+        en: `${hdr('Employment Confirmation Letter')}\nTo Whom It May Concern,\n\nThis is to confirm that ${nameEn} ${idEn} is currently employed at Emergize as ${titleEn}${dept} since ${emp.hire_date || '—'}.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب تأكيد عمل')}\nإلى من يهمه الأمر،\n\nنُفيدكم بأن السيد/ة ${nameAr} ${idAr} يعمل حالياً لدى شركة إيميرجايز بصفة ${titleAr}${deptAr} منذ ${emp.hire_date || '—'}.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'nda':
+      return {
+        en: `${hdr('Non-Disclosure Agreement')}\n\nBy signing below, ${nameEn} acknowledges and agrees to keep confidential all proprietary information of Emergize and its clients during and after employment. Confidential information includes (but is not limited to) client lists, financials, strategy documents, source code, designs, and trade secrets. Breach may result in termination and legal action per KSA Labour Law Article 83 and applicable IP law.${ctxLine}\n\n${refsLine}\n\n_____________________      ${today}\nEmployee signature\n\n${_signEn()}`,
+        ar: `${hdrAr('اتفاقية عدم إفصاح')}\n\nبتوقيعه أدناه، يقرّ ${nameAr} ويتعهد بالحفاظ على سرية جميع المعلومات الخاصة بشركة إيميرجايز وعملائها أثناء وبعد فترة العمل. تشمل المعلومات السرية (دون حصر) قوائم العملاء، البيانات المالية، وثائق الاستراتيجية، الأكواد المصدرية، التصاميم، والأسرار التجارية. يترتب على المخالفة الإنهاء واتخاذ الإجراءات القانونية وفق المادة 83 من نظام العمل وقوانين الملكية الفكرية المعمول بها.${ctxLineAr}\n\n${refsLineAr}\n\n_____________________      ${today}\nتوقيع الموظف\n\n${_signAr()}`,
+      }
+
+    case 'probation_completion':
+      return {
+        en: `${hdr('Probation Period Completion')}\nDear ${nameEn},\n\nWe are pleased to confirm that you have successfully completed your 90-day probation period as ${titleEn} at Emergize. Your employment is hereby confirmed on a permanent basis with all associated benefits.${ctxLine}\n\nWelcome to the team — looking forward to your continued contribution.\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('إتمام فترة التجربة')}\nالأخ/ت ${nameAr}،\n\nيسعدنا تأكيد إكمالك بنجاح فترة التجربة (90 يوماً) كموظف ${titleAr} في شركة إيميرجايز. يُثبَّت توظيفك بشكل دائم اعتباراً من تاريخه مع كافة المزايا المرتبطة.${ctxLineAr}\n\nمرحباً بك في الفريق — نتطلع إلى استمرار عطائك.\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'job_description':
+      return {
+        en: `${hdr('Job Description — ' + (meta.role_title || titleEn))}\n\nPosition: ${meta.role_title || titleEn}\nReports to: ${meta.reports_to || '—'}\nDepartment: ${meta.department || emp.department || '—'}\n\nResponsibilities:\n${meta.responsibilities || '(to be filled in)'}\n\nRequirements:\n${meta.requirements || '(to be filled in)'}\n\nKPIs:\n${meta.kpis || '(to be filled in)'}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('وصف وظيفي — ' + (meta.role_title || titleAr))}\n\nالمسمى الوظيفي: ${meta.role_title || titleAr}\nالتقرير إلى: ${meta.reports_to || '—'}\nالقسم: ${meta.department || emp.department || '—'}\n\nالمسؤوليات:\n${meta.responsibilities || '(تُحدَّد)'}\n\nالمتطلبات:\n${meta.requirements || '(تُحدَّد)'}\n\nمؤشرات الأداء:\n${meta.kpis || '(تُحدَّد)'}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    // ---- COMPENSATION / CAREER ---------------------------------------------
+    case 'salary_certificate':
+      return {
+        en: `${hdr('Salary Certificate')}\nTo Whom It May Concern,\n\nThis is to certify that ${nameEn} ${idEn} has been employed at Emergize since ${emp.hire_date || '—'} in the capacity of ${titleEn}${dept}, drawing a monthly basic salary of ${salary}${emp.housing_allowance ? `, housing allowance ${_money(emp.housing_allowance, emp.salary_currency)}` : ''}${emp.transport_allowance ? `, transport allowance ${_money(emp.transport_allowance, emp.salary_currency)}` : ''}.${ctxLine}\n\nIssued on ${today} at the employee's request.\n\n${_signEn()}`,
+        ar: `${hdrAr('شهادة راتب')}\nإلى من يهمه الأمر،\n\nنُفيدكم بأن السيد/ة ${nameAr} ${idAr} يعمل لدى شركة إيميرجايز منذ ${emp.hire_date || '—'} بصفة ${titleAr}${deptAr}، براتب أساسي شهري قدره ${salary}${emp.housing_allowance ? `، بدل سكن ${_money(emp.housing_allowance, emp.salary_currency)}` : ''}${emp.transport_allowance ? `، بدل نقل ${_money(emp.transport_allowance, emp.salary_currency)}` : ''}.${ctxLineAr}\n\nصدر بتاريخ ${today} بناءً على طلب الموظف.\n\n${_signAr()}`,
+      }
+
+    case 'salary_certificate_for_bank':
+      return {
+        en: `${hdr('Salary Certificate (for Bank)')}\nTo: ${meta.bank_name || 'The Bank Manager'}\n\nThis is to certify that ${nameEn} ${idEn} is permanently employed at Emergize since ${emp.hire_date || '—'} as ${titleEn}${dept}. Monthly compensation breakdown:\n  • Basic salary:        ${salary}\n  • Housing allowance:   ${_money(emp.housing_allowance, emp.salary_currency)}\n  • Transport allowance: ${_money(emp.transport_allowance, emp.salary_currency)}\n  • Other allowances:    ${_money(emp.other_allowances, emp.salary_currency)}\n\nSalary is transferred to the employee's account at ${meta.bank_name || '___'} on or before the 5th of each month. We undertake to channel the employee's salary through your bank if the employee's loan/account is established with you.${ctxLine}\n\nIssued on ${today}.\n\n${_signEn()}`,
+        ar: `${hdrAr('شهادة راتب (للبنك)')}\nإلى: ${meta.bank_name || 'مدير البنك'}\n\nنُفيدكم بأن السيد/ة ${nameAr} ${idAr} يعمل بصفة دائمة لدى شركة إيميرجايز منذ ${emp.hire_date || '—'} بصفة ${titleAr}${deptAr}. تفاصيل الراتب الشهري:\n  • الراتب الأساسي:    ${salary}\n  • بدل السكن:         ${_money(emp.housing_allowance, emp.salary_currency)}\n  • بدل النقل:         ${_money(emp.transport_allowance, emp.salary_currency)}\n  • بدلات أخرى:        ${_money(emp.other_allowances, emp.salary_currency)}\n\nيُحوَّل الراتب إلى حساب الموظف لدى ${meta.bank_name || '___'} في موعد أقصاه اليوم الخامس من كل شهر. ونتعهد بتوجيه الراتب عبر بنككم في حال إقرار التمويل/الحساب.${ctxLineAr}\n\nصدر بتاريخ ${today}.\n\n${_signAr()}`,
+      }
+
+    case 'raise_letter':
+      return {
+        en: `${hdr('Salary Increment Letter')}\nDear ${nameEn},\n\nIn recognition of your performance, we are pleased to inform you that effective ${meta.effective_date || today}, your monthly basic salary will be revised from ${_money(meta.old_salary || emp.base_salary, emp.salary_currency)} to ${_money(meta.new_salary, emp.salary_currency)}${meta.pct_increase ? ` (a ${meta.pct_increase}% increase)` : ''}.${ctxLine}\n\nAll other terms of your employment contract remain unchanged.\n\nThank you for your continued contribution.\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب علاوة')}\nالأخ/ت ${nameAr}،\n\nتقديراً لأدائك، يسعدنا إبلاغك بأنه اعتباراً من ${meta.effective_date || today} سيتم تعديل راتبك الأساسي الشهري من ${_money(meta.old_salary || emp.base_salary, emp.salary_currency)} إلى ${_money(meta.new_salary, emp.salary_currency)}${meta.pct_increase ? ` (بزيادة قدرها ${meta.pct_increase}%)` : ''}.${ctxLineAr}\n\nتبقى جميع بنود عقد عملك الأخرى دون تغيير.\n\nشكراً لك على عطائك المتواصل.\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'promotion_letter':
+      return {
+        en: `${hdr('Promotion Letter')}\nDear ${nameEn},\n\nIn recognition of your outstanding performance, we are pleased to announce your promotion from ${titleEn} to ${meta.new_title || '(new title)'}${meta.new_department ? `, in the ${meta.new_department} department` : ''}, effective ${meta.effective_date || today}.${meta.new_salary ? ` Your new monthly basic salary will be ${_money(meta.new_salary, emp.salary_currency)}.` : ''}${ctxLine}\n\nWe look forward to your continued contribution in your expanded role.\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب ترقية')}\nالأخ/ت ${nameAr}،\n\nتقديراً لأدائك المتميز، يسعدنا إعلامك بترقيتك من ${titleAr} إلى ${meta.new_title || '(المسمى الجديد)'}${meta.new_department ? `، في قسم ${meta.new_department}` : ''}، اعتباراً من ${meta.effective_date || today}.${meta.new_salary ? ` راتبك الأساسي الشهري الجديد ${_money(meta.new_salary, emp.salary_currency)}.` : ''}${ctxLineAr}\n\nنتطلع إلى استمرار عطائك في دورك الموسَّع.\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'bonus_letter':
+      return {
+        en: `${hdr('Bonus Award Letter')}\nDear ${nameEn},\n\nIn recognition of your contribution${meta.reason ? ` (${meta.reason})` : ''}, we are pleased to inform you that you have been awarded a bonus of ${_money(meta.amount, emp.salary_currency)}, payable with the ${meta.payable_month || 'next'} salary.${ctxLine}\n\nThank you for your dedication.\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب مكافأة')}\nالأخ/ت ${nameAr}،\n\nتقديراً لإسهاماتك${meta.reason ? ` (${meta.reason})` : ''}، يسعدنا إبلاغك بمنحك مكافأة قدرها ${_money(meta.amount, emp.salary_currency)}، تُصرف مع راتب ${meta.payable_month || 'الشهر القادم'}.${ctxLineAr}\n\nشكراً على تفانيك.\n\n${_signAr()}`,
+      }
+
+    case 'compensation_review':
+      return {
+        en: `${hdr('Annual Compensation Review')}\nDear ${nameEn},\n\nYour annual compensation review for ${meta.review_year || new Date().getFullYear()} has been completed. Outcome:\n  • Performance rating: ${meta.rating || '—'}\n  • Salary change: ${meta.old_salary ? _money(meta.old_salary) + ' → ' : ''}${_money(meta.new_salary || emp.base_salary, emp.salary_currency)}\n  • Bonus awarded: ${_money(meta.bonus_amount || 0, emp.salary_currency)}\n  • Effective from: ${meta.effective_date || today}${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('مراجعة الأجر السنوية')}\nالأخ/ت ${nameAr}،\n\nاكتملت مراجعة أجرك السنوية لعام ${meta.review_year || new Date().getFullYear()}. النتائج:\n  • تقييم الأداء: ${meta.rating || '—'}\n  • تغيير الراتب: ${meta.old_salary ? _money(meta.old_salary) + ' ← ' : ''}${_money(meta.new_salary || emp.base_salary, emp.salary_currency)}\n  • المكافأة الممنوحة: ${_money(meta.bonus_amount || 0, emp.salary_currency)}\n  • سارية من: ${meta.effective_date || today}${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    // ---- LEAVE LETTERS -----------------------------------------------------
+    case 'vacation_request_letter':
+      return {
+        en: `${hdr('Vacation Request')}\n\nI hereby request annual leave from ${meta.start_date} to ${meta.end_date} (${meta.days || '?'} working days)${meta.reason ? ` for: ${meta.reason}` : ''}. My duties will be covered by ${meta.coverage || 'a colleague to be arranged'} during my absence.${ctxLine}\n\nSubmitted by: ${nameEn}, ${titleEn}\n\nApproval (HR):  □ Approved   □ Rejected\nSignature: __________________   Date: __________`,
+        ar: `${hdrAr('طلب إجازة سنوية')}\n\nأتقدم بطلب إجازة سنوية للفترة من ${meta.start_date} إلى ${meta.end_date} (${meta.days || '؟'} يوم عمل)${meta.reason ? ` للأسباب التالية: ${meta.reason}` : ''}. سيتم تغطية مهامي بواسطة ${meta.coverage || 'زميل سيتم تحديده'} أثناء غيابي.${ctxLineAr}\n\nمقدم الطلب: ${nameAr}، ${titleAr}\n\nقرار الموارد البشرية:  □ موافق   □ مرفوض\nالتوقيع: __________________   التاريخ: __________`,
+      }
+
+    case 'sick_leave_notice':
+      return {
+        en: `${hdr('Sick Leave Notice')}\n\nThis is to notify Emergize HR that ${nameEn} (${titleEn}) is unable to attend work from ${meta.start_date || today} to ${meta.end_date || today} due to medical reasons. ${meta.doctor_note_url ? 'A medical certificate is attached.' : 'A medical certificate will be submitted upon return.'} Sick-leave entitlement per Saudi Labour Law Article 117: 30 days full pay, next 60 days at 75%, then 30 days unpaid per service year.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('إشعار إجازة مرضية')}\n\nنُفيد الموارد البشرية بأن ${nameAr} (${titleAr}) غير قادر على الحضور للعمل من ${meta.start_date || today} إلى ${meta.end_date || today} لأسباب صحية. ${meta.doctor_note_url ? 'مرفق تقرير طبي.' : 'سيُقدَّم التقرير الطبي عند العودة.'} استحقاق الإجازة المرضية وفق المادة 117: 30 يوماً براتب كامل، 60 يوماً بربع راتب، ثم 30 يوماً بدون راتب لكل سنة خدمة.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'maternity_leave_letter':
+      return {
+        en: `${hdr('Maternity Leave Letter')}\nDear ${nameEn},\n\nThis letter confirms approval of your maternity leave from ${meta.start_date} to ${meta.end_date} (10 weeks per KSA Labour Law Article 151) at full pay. Your position and benefits are protected during this period.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب إجازة أمومة')}\nالأخ/ت ${nameAr}،\n\nنؤكد الموافقة على إجازة الأمومة الممنوحة لك من ${meta.start_date} إلى ${meta.end_date} (10 أسابيع وفق المادة 151 من نظام العمل) براتب كامل. وظيفتك ومزاياك محفوظة خلال هذه الفترة.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'paternity_leave_letter':
+      return {
+        en: `${hdr('Paternity Leave Letter')}\nDear ${nameEn},\n\nCongratulations. Your paternity leave is approved from ${meta.start_date} to ${meta.end_date} (3 days per KSA Labour Law Article 113), with full pay.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب إجازة أبوة')}\nالأخ/ت ${nameAr}،\n\nمبروك. تم اعتماد إجازة الأبوة من ${meta.start_date} إلى ${meta.end_date} (3 أيام وفق المادة 113) براتب كامل.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'hajj_leave_letter':
+      return {
+        en: `${hdr('Hajj Leave Letter')}\nDear ${nameEn},\n\nWe confirm approval of your Hajj leave from ${meta.start_date} to ${meta.end_date} (10–15 days per KSA Labour Law Article 114, once per service). Your position and benefits are preserved during this period. We wish you a blessed pilgrimage.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب إجازة حج')}\nالأخ/ت ${nameAr}،\n\nنؤكد الموافقة على إجازة الحج من ${meta.start_date} إلى ${meta.end_date} (10-15 يوماً وفق المادة 114، مرة واحدة طوال فترة الخدمة). محفوظة وظيفتك ومزاياك خلال هذه الفترة. تقبّل الله طاعتكم.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'bereavement_leave_letter':
+      return {
+        en: `${hdr('Bereavement Leave Letter')}\nDear ${nameEn},\n\nWe extend our heartfelt condolences. Your bereavement leave is approved from ${meta.start_date} to ${meta.end_date}${meta.days ? ` (${meta.days} days)` : ''} with full pay per the Saudi Labour Law.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب إجازة عزاء')}\nالأخ/ت ${nameAr}،\n\nنُعرب عن صادق تعازينا. تم اعتماد إجازة العزاء من ${meta.start_date} إلى ${meta.end_date}${meta.days ? ` (${meta.days} أيام)` : ''} براتب كامل وفق نظام العمل.\nأحسن الله عزاءك.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'unpaid_leave_letter':
+      return {
+        en: `${hdr('Unpaid Leave Letter')}\nDear ${nameEn},\n\nYour unpaid leave request is approved from ${meta.start_date} to ${meta.end_date} (${meta.days || '?'} days). During this period your salary will be prorated and ${meta.days || '?'} days will be deducted from the relevant payroll. Your employment status remains active.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب إجازة بدون راتب')}\nالأخ/ت ${nameAr}،\n\nتم اعتماد طلبك للحصول على إجازة بدون راتب من ${meta.start_date} إلى ${meta.end_date} (${meta.days || '؟'} أيام). يُحسب الراتب على أساس نسبة الأيام ويُخصم ${meta.days || '؟'} يوماً من راتب الشهر المعني. تبقى علاقتك الوظيفية سارية.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'return_to_work_letter':
+      return {
+        en: `${hdr('Return to Work Letter')}\nDear ${nameEn},\n\nWelcome back. This confirms your return to work on ${meta.return_date || today} after your ${meta.leave_type || 'leave'} period (${meta.leave_start || '—'} → ${meta.leave_end || '—'}). Your role, salary, and benefits remain unchanged.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب عودة إلى العمل')}\nالأخ/ت ${nameAr}،\n\nمرحباً بعودتك. نؤكد عودتك للعمل اعتباراً من ${meta.return_date || today} بعد إجازة ${meta.leave_type || ''} (${meta.leave_start || '—'} ← ${meta.leave_end || '—'}). يبقى منصبك وراتبك ومزاياك دون تغيير.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'leave_approval_letter':
+      return {
+        en: `${hdr('Leave Approval')}\nDear ${nameEn},\n\nYour ${meta.leave_type || 'leave'} request from ${meta.start_date} to ${meta.end_date} (${meta.days || '?'} days) is approved.${meta.condition ? ` Condition: ${meta.condition}.` : ''} Please coordinate handover before departure.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('موافقة على إجازة')}\nالأخ/ت ${nameAr}،\n\nتمت الموافقة على طلب إجازة ${meta.leave_type || ''} من ${meta.start_date} إلى ${meta.end_date} (${meta.days || '؟'} يوماً).${meta.condition ? ` بشرط: ${meta.condition}.` : ''} يُرجى تنسيق التسليم قبل المغادرة.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'leave_rejection_letter':
+      return {
+        en: `${hdr('Leave Request — Decision')}\nDear ${nameEn},\n\nAfter reviewing your ${meta.leave_type || 'leave'} request from ${meta.start_date} to ${meta.end_date}, we regret to inform you the request cannot be approved at this time. Reason: ${meta.reason || 'operational requirements'}.${meta.alternative ? ` Suggested alternative: ${meta.alternative}.` : ''}${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('قرار بشأن طلب إجازة')}\nالأخ/ت ${nameAr}،\n\nبعد مراجعة طلب إجازة ${meta.leave_type || ''} من ${meta.start_date} إلى ${meta.end_date}، نأسف لإفادتك بعدم إمكانية الموافقة في الوقت الحالي. السبب: ${meta.reason || 'متطلبات العمل'}.${meta.alternative ? ` البديل المقترح: ${meta.alternative}.` : ''}${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    // ---- DISCIPLINE ---------------------------------------------------------
     case 'verbal_warning':
     case 'written_warning':
     case 'final_warning': {
       const labelEn = type === 'verbal_warning' ? 'Verbal Warning' : type === 'written_warning' ? 'Written Warning' : 'Final Warning'
       const labelAr = type === 'verbal_warning' ? 'إنذار شفهي' : type === 'written_warning' ? 'إنذار كتابي' : 'إنذار نهائي'
       return {
-        en: `${labelEn}\nTo: ${emp.full_name}${emp.job_title ? `, ${emp.job_title}` : ''}\nDate: ${today}\nSubject: ${subject}\n${ctxLine}\n\nThis serves as a formal ${labelEn.toLowerCase()} regarding the matter referenced above. We expect immediate corrective action. Continued breach may result in further disciplinary measures up to and including termination of your employment contract, in accordance with the Saudi Labour Law.\n\n${refsLine}\n\nSigned,\nEmergize HR`,
-        ar: `${labelAr}\nإلى: ${emp.full_name_ar || emp.full_name}${emp.job_title_ar ? `، ${emp.job_title_ar}` : ''}\nالتاريخ: ${today}\nالموضوع: ${subject}\n${ctxLineAr}\n\nيُعتبر هذا الخطاب ${labelAr} رسمياً بشأن الموضوع المشار إليه أعلاه. نتوقع منكم اتخاذ إجراء تصحيحي فوري. يؤدي استمرار المخالفة إلى اتخاذ مزيد من الإجراءات التأديبية قد تصل إلى إنهاء عقد العمل، وفقاً لنظام العمل في المملكة العربية السعودية.\n\n${refsLineAr}\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+        en: `${hdr(labelEn)}\n\nThis serves as a formal ${labelEn.toLowerCase()} regarding the matter referenced above. We expect immediate corrective action. Continued breach may result in further disciplinary measures up to and including termination of your employment contract, in accordance with the Saudi Labour Law.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr(labelAr)}\n\nيُعتبر هذا الخطاب ${labelAr} رسمياً بشأن الموضوع المشار إليه أعلاه. نتوقع منكم اتخاذ إجراء تصحيحي فوري. يؤدي استمرار المخالفة إلى اتخاذ مزيد من الإجراءات التأديبية قد تصل إلى إنهاء عقد العمل، وفقاً لنظام العمل في المملكة العربية السعودية.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
       }
     }
+
+    case 'suspension_letter':
+      return {
+        en: `${hdr('Suspension Letter')}\nDear ${nameEn},\n\nPending investigation of the matter referenced above, you are placed on suspension effective ${meta.effective_date || today}${meta.duration_days ? ` for ${meta.duration_days} days` : ''}, in accordance with Saudi Labour Law Article 81. ${meta.with_pay ? 'Salary will continue during suspension.' : 'Salary is withheld pending the outcome of investigation; if the matter is resolved in your favour, withheld pay will be reimbursed.'}${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب إيقاف عن العمل')}\nالأخ/ت ${nameAr}،\n\nبانتظار التحقيق في الموضوع المشار إليه، يتم إيقافك عن العمل اعتباراً من ${meta.effective_date || today}${meta.duration_days ? ` لمدة ${meta.duration_days} يوماً` : ''}، استناداً إلى المادة 81 من نظام العمل. ${meta.with_pay ? 'يستمر صرف الراتب أثناء فترة الإيقاف.' : 'يُحجز الراتب بانتظار نتائج التحقيق؛ في حال صدور القرار لصالحك يُعاد المحجوز.'}${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'disciplinary_notice':
+      return {
+        en: `${hdr('Disciplinary Notice')}\n\nThis notice is issued to address ${meta.violation || 'a workplace conduct matter'} per company policy and KSA Labour Law. ${meta.action || 'A formal hearing will be scheduled.'} Your right to respond in writing within 7 days is preserved.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('إشعار تأديبي')}\n\nيُصدَر هذا الإشعار لمعالجة ${meta.violation || 'مخالفة سلوكية في العمل'} وفق سياسات الشركة ونظام العمل. ${meta.action || 'سيتم تحديد جلسة استماع رسمية.'} لك الحق في الرد كتابياً خلال 7 أيام.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
     case 'termination':
       return {
-        en: `Termination Notice\nTo: ${emp.full_name}${emp.job_title ? `, ${emp.job_title}` : ''}\nDate: ${today}\nSubject: ${subject}\n${ctxLine}\n\nThis letter serves as formal notice of the termination of your employment with Emergize, effective ${today}. Final settlement including any accrued End-of-Service Benefits (EOSB) per the Saudi Labour Law will be processed within the statutory timeframe.\n\n${refsLine}\n\nSigned,\nEmergize HR`,
-        ar: `إشعار إنهاء العمل\nإلى: ${emp.full_name_ar || emp.full_name}${emp.job_title_ar ? `، ${emp.job_title_ar}` : ''}\nالتاريخ: ${today}\nالموضوع: ${subject}\n${ctxLineAr}\n\nيُعتبر هذا الخطاب إشعاراً رسمياً بإنهاء عقد العمل لدى إيميرجايز اعتباراً من ${today}. ستتم تسوية المستحقات النهائية بما فيها مكافأة نهاية الخدمة وفقاً لنظام العمل في المملكة العربية السعودية خلال المدة النظامية.\n\n${refsLineAr}\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+        en: `${hdr('Termination Notice')}\nDear ${nameEn},\n\nThis letter serves as formal notice of the termination of your employment with Emergize, effective ${meta.effective_date || today}.${meta.reason ? ` Reason: ${meta.reason}.` : ''} Final settlement, including any accrued End-of-Service Benefits (EOSB), accrued leave balance, and pending dues, will be processed and credited within the statutory timeframe per Saudi Labour Law Article 88.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('إشعار إنهاء عمل')}\nالأخ/ت ${nameAr}،\n\nيُعتبر هذا الخطاب إشعاراً رسمياً بإنهاء عقد العمل لدى إيميرجايز اعتباراً من ${meta.effective_date || today}.${meta.reason ? ` السبب: ${meta.reason}.` : ''} ستتم تسوية المستحقات النهائية بما فيها مكافأة نهاية الخدمة وأيام الإجازة المتبقية وأي مستحقات أخرى، وصرفها خلال المدة المنصوص عليها في المادة 88 من نظام العمل.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
       }
-    case 'salary_certificate':
-      return {
-        en: `To Whom It May Concern,\nThis is to certify that ${emp.full_name}${emp.iqama_number ? ` (Iqama ${emp.iqama_number})` : emp.national_id ? ` (ID ${emp.national_id})` : ''} has been employed by Emergize since ${emp.hire_date || '—'} as ${emp.job_title || '—'}, with a monthly salary of ${Number(emp.base_salary ?? 0).toLocaleString('en-US')} ${emp.salary_currency || 'SAR'}.\n\nIssued on ${today} at the employee's request.\n\nSigned,\nEmergize HR`,
-        ar: `إلى من يهمه الأمر،\nنُفيدكم بأن السيد/ة ${emp.full_name_ar || emp.full_name}${emp.iqama_number ? ` (إقامة ${emp.iqama_number})` : emp.national_id ? ` (هوية ${emp.national_id})` : ''} يعمل لدى شركة إيميرجايز منذ ${emp.hire_date || '—'} بصفة ${emp.job_title_ar || emp.job_title || '—'}، براتب شهري قدره ${Number(emp.base_salary ?? 0).toLocaleString('en-US')} ${emp.salary_currency || 'ريال سعودي'}.\n\nصدر هذا الخطاب بتاريخ ${today} بناءً على طلب الموظف.\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
-      }
-    case 'employment_letter':
-      return {
-        en: `To Whom It May Concern,\nThis is to confirm that ${emp.full_name} is currently employed by Emergize as ${emp.job_title || '—'} since ${emp.hire_date || '—'}.\n\nIssued on ${today}.\n\nSigned,\nEmergize HR`,
-        ar: `إلى من يهمه الأمر،\nنُفيدكم بأن السيد/ة ${emp.full_name_ar || emp.full_name} يعمل حالياً لدى شركة إيميرجايز بصفة ${emp.job_title_ar || emp.job_title || '—'} منذ ${emp.hire_date || '—'}.\n\nصدر بتاريخ ${today}.\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
-      }
+
+    // ---- EXTERNAL ----------------------------------------------------------
     case 'noc':
       return {
-        en: `No-Objection Certificate (NOC)\nThis is to confirm that Emergize has no objection regarding the matter referenced below.\n\nEmployee: ${emp.full_name}\nSubject: ${subject}\n${ctxLine}\n\nDate: ${today}\n\nSigned,\nEmergize HR`,
-        ar: `شهادة عدم ممانعة\nنُفيدكم بأن شركة إيميرجايز لا تمانع في الموضوع المشار إليه أدناه.\n\nالموظف: ${emp.full_name_ar || emp.full_name}\nالموضوع: ${subject}\n${ctxLineAr}\n\nالتاريخ: ${today}\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+        en: `${hdr('No-Objection Certificate (NOC)')}\nTo Whom It May Concern,\n\nEmergize hereby confirms that we have no objection regarding ${meta.purpose || 'the matter referenced above'} for our employee ${nameEn} ${idEn}, currently employed as ${titleEn}.${ctxLine}\n\nIssued on ${today}.\n\n${_signEn()}`,
+        ar: `${hdrAr('شهادة عدم ممانعة')}\nإلى من يهمه الأمر،\n\nنُفيدكم بأن شركة إيميرجايز لا تُمانع في ${meta.purpose || 'الموضوع المشار إليه أعلاه'} للموظف ${nameAr} ${idAr}، الذي يعمل لدينا بصفة ${titleAr}.${ctxLineAr}\n\nصدر بتاريخ ${today}.\n\n${_signAr()}`,
       }
+
     case 'experience_letter':
       return {
-        en: `Experience Certificate\nThis is to certify that ${emp.full_name} was employed at Emergize from ${emp.hire_date || '—'} to ${today} in the position of ${emp.job_title || '—'}, ${emp.department ? `within the ${emp.department} department, ` : ''}performing duties with diligence and professionalism.\n\nIssued on ${today}.\n\nSigned,\nEmergize HR`,
-        ar: `شهادة خبرة\nنُفيدكم بأن السيد/ة ${emp.full_name_ar || emp.full_name} عمل لدى شركة إيميرجايز خلال الفترة من ${emp.hire_date || '—'} حتى ${today} بصفة ${emp.job_title_ar || emp.job_title || '—'}${emp.department ? `، في قسم ${emp.department}` : ''}، وأدى مهامه بكل اجتهاد ومهنية.\n\nصدر بتاريخ ${today}.\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+        en: `${hdr('Experience Certificate')}\nTo Whom It May Concern,\n\nThis is to certify that ${nameEn} ${idEn} was employed at Emergize from ${emp.hire_date || '—'} to ${meta.end_date || today} in the capacity of ${titleEn}${dept}, where they performed their duties with diligence, professionalism, and integrity.${ctxLine}\n\nWe wish them continued success.\n\n${_signEn()}`,
+        ar: `${hdrAr('شهادة خبرة')}\nإلى من يهمه الأمر،\n\nنُفيدكم بأن السيد/ة ${nameAr} ${idAr} عمل لدى شركة إيميرجايز خلال الفترة من ${emp.hire_date || '—'} حتى ${meta.end_date || today} بصفة ${titleAr}${deptAr}، وأدى مهامه بكل اجتهاد ومهنية ونزاهة.${ctxLineAr}\n\nنتمنى له دوام التوفيق.\n\n${_signAr()}`,
       }
+
+    case 'bank_loan_support_letter':
+      return {
+        en: `${hdr('Bank Loan Support Letter')}\nTo: ${meta.bank_name || 'The Bank Manager'}\n\nWe confirm that ${nameEn} ${idEn} is permanently employed at Emergize as ${titleEn} since ${emp.hire_date || '—'} with a current monthly basic salary of ${salary}. We undertake to channel the employee's salary through your bank in the event of loan/credit-facility approval.${ctxLine}\n\nIssued on ${today}.\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب دعم تمويل بنكي')}\nإلى: ${meta.bank_name || 'مدير البنك'}\n\nنؤكد بأن السيد/ة ${nameAr} ${idAr} يعمل بصفة دائمة لدى شركة إيميرجايز بصفة ${titleAr} منذ ${emp.hire_date || '—'} براتب أساسي شهري قدره ${salary}. ونتعهد بتوجيه راتب الموظف عبر بنككم في حال إقرار التمويل/التسهيلات.${ctxLineAr}\n\nصدر بتاريخ ${today}.\n\n${_signAr()}`,
+      }
+
+    case 'visa_support_letter':
+      return {
+        en: `${hdr('Visa Support Letter')}\nTo: ${meta.embassy || 'The Honorable Embassy'}\n\nWe confirm that ${nameEn} ${idEn} is permanently employed at Emergize as ${titleEn} since ${emp.hire_date || '—'} with a current monthly salary of ${salary}. ${meta.travel_purpose ? `Purpose of travel: ${meta.travel_purpose}.` : 'The employee will undertake travel during their approved annual leave period.'} ${meta.travel_dates ? `Travel dates: ${meta.travel_dates}.` : ''} We confirm the employee will return to their duties at Emergize at the conclusion of the trip.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب دعم تأشيرة')}\nإلى: ${meta.embassy || 'السفارة الموقرة'}\n\nنؤكد بأن السيد/ة ${nameAr} ${idAr} يعمل بصفة دائمة لدى شركة إيميرجايز بصفة ${titleAr} منذ ${emp.hire_date || '—'} براتب شهري حالي قدره ${salary}. ${meta.travel_purpose ? `الغرض من السفر: ${meta.travel_purpose}.` : 'سيستغل الموظف فترة إجازته السنوية المعتمدة في السفر.'} ${meta.travel_dates ? `تواريخ السفر: ${meta.travel_dates}.` : ''} ونؤكد عودة الموظف إلى مقر عمله في الشركة عند انتهاء الرحلة.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'dependent_visa_support':
+      return {
+        en: `${hdr('Dependent Visa Support Letter')}\nTo: The Honorable Embassy / Consulate,\n\nWe confirm that ${nameEn} ${idEn}, employed at Emergize as ${titleEn} since ${emp.hire_date || '—'} with a monthly salary of ${salary}, is sponsoring his/her dependent(s) for visa application: ${meta.dependents || '(list of dependents)'}. We confirm the employee has sufficient means to support the dependent(s) during their stay.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب دعم تأشيرة مرافقين')}\nإلى: السفارة / القنصلية الموقرة،\n\nنؤكد بأن السيد/ة ${nameAr} ${idAr}، الذي يعمل لدى إيميرجايز بصفة ${titleAr} منذ ${emp.hire_date || '—'} براتب شهري قدره ${salary}، يكفل مرافقيه التاليين: ${meta.dependents || '(قائمة المرافقين)'}. ونؤكد توفر الإمكانيات الكافية لإعالة المرافقين خلال فترة إقامتهم.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'embassy_letter':
+      return {
+        en: `${hdr('Embassy Letter')}\nTo Whom It May Concern,\n\n${nameEn} ${idEn} is permanently employed at Emergize as ${titleEn} since ${emp.hire_date || '—'}. ${meta.purpose ? `Purpose of this letter: ${meta.purpose}.` : ''} We confirm the information stated herein is true to the best of our records.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب موجَّه للسفارة')}\nإلى من يهمه الأمر،\n\nالسيد/ة ${nameAr} ${idAr} يعمل بصفة دائمة لدى إيميرجايز بصفة ${titleAr} منذ ${emp.hire_date || '—'}. ${meta.purpose ? `الغرض من هذا الخطاب: ${meta.purpose}.` : ''} ونؤكد صحة المعلومات الواردة بحسب سجلاتنا.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'property_rental_support':
+      return {
+        en: `${hdr('Property Rental Support Letter')}\nTo: ${meta.landlord || 'The Landlord / Real-Estate Agent'},\n\nWe confirm that ${nameEn} ${idEn} is permanently employed at Emergize as ${titleEn} since ${emp.hire_date || '—'} with a monthly salary of ${salary}. The employee has sufficient and stable means to fulfill rental obligations.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب دعم استئجار سكن')}\nإلى: ${meta.landlord || 'مالك العقار / الوسيط العقاري'}،\n\nنؤكد بأن السيد/ة ${nameAr} ${idAr} يعمل بصفة دائمة لدى إيميرجايز بصفة ${titleAr} منذ ${emp.hire_date || '—'} براتب شهري قدره ${salary}. لدى الموظف الموارد الكافية والمستقرة للوفاء بالتزامات الإيجار.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'recommendation_letter':
+      return {
+        en: `${hdr('Letter of Recommendation')}\nTo Whom It May Concern,\n\nI am pleased to recommend ${nameEn}, who served as ${titleEn} at Emergize from ${emp.hire_date || '—'} to ${meta.end_date || today}. During this tenure, ${nameEn} consistently demonstrated ${meta.strengths || 'professionalism, integrity, and strong technical/business acumen'}. ${meta.highlight || 'Notable accomplishments include consistent delivery against deadlines and strong collaboration with cross-functional teams.'} I recommend ${nameEn} without reservation for any role aligned with their expertise.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب توصية')}\nإلى من يهمه الأمر،\n\nيسعدني التوصية بالسيد/ة ${nameAr}، الذي عمل بصفة ${titleAr} لدى إيميرجايز خلال الفترة من ${emp.hire_date || '—'} حتى ${meta.end_date || today}. خلال هذه المدة أظهر ${nameAr} باستمرار ${meta.strengths || 'المهنية والنزاهة والكفاءة التقنية والعملية'}. ${meta.highlight || 'من إنجازاته البارزة الالتزام بمواعيد التسليم والتعاون القوي مع الفرق متعددة الوظائف.'} وأوصي به دون تحفظ لأي دور يتوافق مع خبراته.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    // ---- KSA-SPECIFIC ------------------------------------------------------
+    case 'hrdf_letter':
+      return {
+        en: `${hdr('HRDF Letter')}\nTo: Human Resources Development Fund (HRDF),\n\nThis letter relates to ${meta.purpose || 'HRDF training programme support'} for our Saudi employee ${nameEn} (National ID ${emp.national_id || '—'}), employed at Emergize since ${emp.hire_date || '—'} as ${titleEn}.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب موجَّه لصندوق تنمية الموارد البشرية (هدف)')}\nإلى: صندوق تنمية الموارد البشرية (هدف)،\n\nيتعلق هذا الخطاب بـ${meta.purpose || 'دعم برنامج تدريبي ضمن مبادرات هدف'} للموظف السعودي ${nameAr} (الهوية الوطنية ${emp.national_id || '—'})، الذي يعمل لدى إيميرجايز منذ ${emp.hire_date || '—'} بصفة ${titleAr}.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'gosi_subscription_letter':
+      return {
+        en: `${hdr('GOSI Subscription Letter')}\nTo: General Organization for Social Insurance (GOSI),\n\nThis is to confirm the GOSI subscription record for our employee ${nameEn} ${idEn}, ${titleEn}, employed at Emergize since ${emp.hire_date || '—'}, with GOSI subject category: ${emp.gosi_subject || '—'}.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب اشتراك في التأمينات الاجتماعية')}\nإلى: المؤسسة العامة للتأمينات الاجتماعية،\n\nنُفيد بإثبات اشتراك التأمينات الاجتماعية للموظف ${nameAr} ${idAr}، ${titleAr}، العامل لدى إيميرجايز منذ ${emp.hire_date || '—'}، تصنيف التأمينات: ${emp.gosi_subject || '—'}.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'saudization_letter':
+      return {
+        en: `${hdr('Saudization Status Letter')}\nTo: ${meta.recipient || 'The Ministry of Human Resources and Social Development'},\n\nThis letter confirms our compliance with the Nitaqat Saudization program. ${meta.context || 'Details of our Saudi/non-Saudi workforce composition are available upon request.'}${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب توطين (نطاقات)')}\nإلى: ${meta.recipient || 'وزارة الموارد البشرية والتنمية الاجتماعية'}،\n\nنؤكد التزامنا ببرنامج التوطين (نطاقات). ${meta.context || 'تفاصيل تركيبة القوى العاملة السعودية وغير السعودية متاحة عند الطلب.'}${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'mudawana_amendment':
+      return {
+        en: `${hdr('Employment Contract Amendment')}\n\nThis amendment, entered into between Emergize and ${nameEn} ${idEn}, modifies the existing employment contract dated ${emp.hire_date || '—'} as follows:\n\n${meta.amendments || '(amendment details)'}\n\nEffective: ${meta.effective_date || today}. All other terms remain unchanged.${ctxLine}\n\n${refsLine}\n\n_____________________   _____________________\nEmployer signature           Employee signature\n\n${_signEn()}`,
+        ar: `${hdrAr('ملحق عقد عمل')}\n\nأُبرم هذا الملحق بين شركة إيميرجايز و${nameAr} ${idAr}، تعديلاً لعقد العمل المؤرخ ${emp.hire_date || '—'} كما يلي:\n\n${meta.amendments || '(تفاصيل التعديل)'}\n\nالسريان: ${meta.effective_date || today}. تبقى باقي البنود دون تغيير.${ctxLineAr}\n\n${refsLineAr}\n\n_____________________   _____________________\nتوقيع صاحب العمل           توقيع الموظف\n\n${_signAr()}`,
+      }
+
+    // ---- FINANCIAL ----------------------------------------------------------
+    case 'loan_request_letter':
+      return {
+        en: `${hdr('Salary Loan / Advance Request')}\n\nI hereby request a salary loan/advance of ${_money(meta.amount, emp.salary_currency)} ${meta.reason ? `for: ${meta.reason}` : ''}, repayable over ${meta.term_months || '?'} months via a monthly deduction of ${_money(meta.monthly_deduction, emp.salary_currency)} from my salary${meta.first_deduction ? ` starting ${meta.first_deduction}` : ''}. I confirm that this deduction will not exceed 50% of my net pay, as required by Saudi Labour Law Article 92.${ctxLine}\n\nSubmitted by: ${nameEn}, ${titleEn}\n\nApproval (HR/Finance):  □ Approved   □ Rejected\nSignature: __________________   Date: __________\n\n${refsLine}`,
+        ar: `${hdrAr('طلب قرض / سلفة على الراتب')}\n\nأتقدم بطلب قرض/سلفة على راتبي بمبلغ ${_money(meta.amount, emp.salary_currency)} ${meta.reason ? `للغرض التالي: ${meta.reason}` : ''}، مسدداً على ${meta.term_months || '؟'} شهراً عن طريق خصم شهري قدره ${_money(meta.monthly_deduction, emp.salary_currency)} من راتبي${meta.first_deduction ? ` ابتداءً من ${meta.first_deduction}` : ''}. وأؤكد أن هذا الخصم لن يتجاوز 50% من صافي راتبي وفقاً للمادة 92 من نظام العمل.${ctxLineAr}\n\nمقدم الطلب: ${nameAr}، ${titleAr}\n\nقرار الموارد البشرية / المالية:  □ موافق   □ مرفوض\nالتوقيع: __________________   التاريخ: __________\n\n${refsLineAr}`,
+      }
+
+    case 'salary_advance_letter':
+      return {
+        en: `${hdr('Salary Advance')}\nDear ${nameEn},\n\nA salary advance of ${_money(meta.amount, emp.salary_currency)} has been approved and will be paid on ${meta.payment_date || today}. This advance will be recovered from your next ${meta.recovery_months || 1} month(s) of salary via a deduction of ${_money(meta.monthly_deduction, emp.salary_currency)} each month, in accordance with KSA Labour Law Article 92.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('سلفة على الراتب')}\nالأخ/ت ${nameAr}،\n\nتم اعتماد سلفة على راتبك بمبلغ ${_money(meta.amount, emp.salary_currency)} وستُصرف بتاريخ ${meta.payment_date || today}. سيتم استرداد هذه السلفة من راتب الـ ${meta.recovery_months || 1} شهر القادم عبر خصم ${_money(meta.monthly_deduction, emp.salary_currency)} شهرياً، وفقاً للمادة 92 من نظام العمل.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'salary_advance_repayment_schedule': {
+      const schedRows = (meta.schedule || []).map((r, i) => `  ${i + 1}. ${r.month}: ${_money(r.amount, emp.salary_currency)}`).join('\n') || '  (schedule to be attached)'
+      return {
+        en: `${hdr('Loan Repayment Schedule')}\nDear ${nameEn},\n\nRepayment schedule for your salary loan of ${_money(meta.principal, emp.salary_currency)}:\n\n${schedRows}\n\nTotal: ${_money(meta.total, emp.salary_currency)} over ${meta.term_months || '?'} months.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('جدول سداد قرض')}\nالأخ/ت ${nameAr}،\n\nجدول سداد القرض البالغ ${_money(meta.principal, emp.salary_currency)}:\n\n${schedRows}\n\nالإجمالي: ${_money(meta.total, emp.salary_currency)} على ${meta.term_months || '؟'} شهراً.${ctxLineAr}\n\n${_signAr()}`,
+      }
+    }
+
+    case 'expense_reimbursement_letter':
+      return {
+        en: `${hdr('Expense Reimbursement Notice')}\nDear ${nameEn},\n\nYour reimbursement request of ${_money(meta.amount, emp.salary_currency)} for ${meta.purpose || 'business expenses'}${meta.receipt_dates ? ` (receipts: ${meta.receipt_dates})` : ''} has been approved and will be credited with the next payroll cycle (${meta.payroll_month || 'next month'}).${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('إشعار استرداد نفقات')}\nالأخ/ت ${nameAr}،\n\nتم اعتماد طلب استرداد النفقات بمبلغ ${_money(meta.amount, emp.salary_currency)} لـ ${meta.purpose || 'نفقات عمل'}${meta.receipt_dates ? ` (تواريخ الفواتير: ${meta.receipt_dates})` : ''}، وسيُضاف مع راتب الشهر القادم (${meta.payroll_month || 'الشهر القادم'}).${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    // ---- LIFECYCLE ----------------------------------------------------------
+    case 'resignation_letter':
+      return {
+        en: `${hdr('Resignation Letter')}\n\nDear Emergize HR,\n\nI, ${nameEn} (${titleEn}), hereby tender my resignation from my position at Emergize, effective ${meta.last_working_day || today}.${meta.reason ? ` Reason: ${meta.reason}.` : ''} I will ensure a smooth handover of my responsibilities and remain available to support the transition.${ctxLine}\n\nThank you for the opportunities and experience.\n\nSincerely,\n${nameEn}\n${today}`,
+        ar: `${hdrAr('خطاب استقالة')}\n\nإلى الموارد البشرية - إيميرجايز،\n\nأنا ${nameAr} (${titleAr})، أتقدم بهذا الخطاب لتقديم استقالتي من وظيفتي لدى إيميرجايز، اعتباراً من ${meta.last_working_day || today}.${meta.reason ? ` السبب: ${meta.reason}.` : ''} وأتعهد بضمان تسليم مسؤولياتي بسلاسة، وسأبقى متاحاً لدعم مرحلة الانتقال.${ctxLineAr}\n\nشكراً على الفرص والخبرات.\n\nمع التقدير،\n${nameAr}\n${today}`,
+      }
+
+    case 'resignation_acceptance':
+      return {
+        en: `${hdr('Resignation Acceptance Letter')}\nDear ${nameEn},\n\nThis letter confirms acceptance of your resignation dated ${meta.resignation_date || today}. Your last working day will be ${meta.last_working_day || today}. We will process your final settlement (EOSB, accrued leave, pending dues) per Saudi Labour Law Article 88. Please coordinate with HR for the exit clearance process and asset return.${ctxLine}\n\nWe thank you for your contributions and wish you success in your future endeavours.\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب قبول استقالة')}\nالأخ/ت ${nameAr}،\n\nنؤكد قبول استقالتك المؤرخة ${meta.resignation_date || today}. آخر يوم عمل ${meta.last_working_day || today}. ستتم تسوية مستحقاتك النهائية (مكافأة نهاية الخدمة، رصيد الإجازات، أي مستحقات أخرى) وفق المادة 88 من نظام العمل. يُرجى التنسيق مع الموارد البشرية لإكمال إجراءات إخلاء الطرف وإعادة عُهدة الشركة.${ctxLineAr}\n\nنشكرك على إسهاماتك ونتمنى لك التوفيق في مساعيك المستقبلية.\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'transfer_letter':
+      return {
+        en: `${hdr('Internal Transfer Letter')}\nDear ${nameEn},\n\nThis letter confirms your transfer from ${meta.old_dept || emp.department || '—'} to ${meta.new_dept || '—'} as ${meta.new_title || titleEn}, effective ${meta.effective_date || today}.${meta.new_manager ? ` Your new manager is ${meta.new_manager}.` : ''} All compensation and benefits${meta.salary_change ? ` are adjusted as: ${meta.salary_change}` : ' remain unchanged'}.${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب نقل داخلي')}\nالأخ/ت ${nameAr}،\n\nنؤكد نقلك من ${meta.old_dept || emp.department || '—'} إلى ${meta.new_dept || '—'} بصفة ${meta.new_title || titleAr}، اعتباراً من ${meta.effective_date || today}.${meta.new_manager ? ` المدير المباشر الجديد: ${meta.new_manager}.` : ''} الراتب والمزايا${meta.salary_change ? ` كما يلي: ${meta.salary_change}` : ' دون تغيير'}.${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'relocation_letter':
+      return {
+        en: `${hdr('Relocation Letter')}\nDear ${nameEn},\n\nThis confirms your relocation from ${meta.old_location || '—'} to ${meta.new_location || '—'}, effective ${meta.effective_date || today}. ${meta.relocation_allowance ? `A relocation allowance of ${_money(meta.relocation_allowance, emp.salary_currency)} is approved.` : ''}${ctxLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب نقل جغرافي')}\nالأخ/ت ${nameAr}،\n\nنؤكد نقلك من ${meta.old_location || '—'} إلى ${meta.new_location || '—'}، اعتباراً من ${meta.effective_date || today}. ${meta.relocation_allowance ? `وتم اعتماد بدل نقل جغرافي قدره ${_money(meta.relocation_allowance, emp.salary_currency)}.` : ''}${ctxLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'final_settlement_letter':
+      return {
+        en: `${hdr('Final Settlement Letter')}\nDear ${nameEn},\n\nFollowing the end of your employment with Emergize on ${meta.last_working_day || today}, this letter details your final settlement per Saudi Labour Law Articles 84 & 88:\n\n  • Years served:                  ${meta.years_served || '—'}\n  • Accrued EOSB:                  ${_money(meta.eosb_amount, emp.salary_currency)}\n  • Accrued leave (${meta.unused_leave_days || 0}d):    ${_money(meta.unused_leave_value, emp.salary_currency)}\n  • Pending salary:                ${_money(meta.pending_salary, emp.salary_currency)}\n  • Other dues:                    ${_money(meta.other_dues, emp.salary_currency)}\n  • Deductions / advances owed:    ${_money(meta.deductions, emp.salary_currency)}\n  ────────────────────────────────────────\n  • Net final settlement:          ${_money(meta.net_total, emp.salary_currency)}\n\nThis amount will be paid via bank transfer to your account on file within statutory timeframes.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب تسوية نهائية')}\nالأخ/ت ${nameAr}،\n\nبعد انتهاء علاقتك الوظيفية مع إيميرجايز بتاريخ ${meta.last_working_day || today}، يوضح هذا الخطاب تفاصيل التسوية النهائية وفق المادتين 84 و88 من نظام العمل:\n\n  • سنوات الخدمة:                    ${meta.years_served || '—'}\n  • مكافأة نهاية الخدمة:             ${_money(meta.eosb_amount, emp.salary_currency)}\n  • رصيد الإجازات (${meta.unused_leave_days || 0} يوم):     ${_money(meta.unused_leave_value, emp.salary_currency)}\n  • راتب مستحق:                      ${_money(meta.pending_salary, emp.salary_currency)}\n  • مستحقات أخرى:                    ${_money(meta.other_dues, emp.salary_currency)}\n  • خصومات / سُلَف مستحقة:           ${_money(meta.deductions, emp.salary_currency)}\n  ────────────────────────────────────────\n  • صافي التسوية النهائية:           ${_money(meta.net_total, emp.salary_currency)}\n\nسيتم تحويل المبلغ إلى حسابك البنكي المسجل خلال المدد النظامية.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    case 'exit_clearance_letter':
+      return {
+        en: `${hdr('Exit Clearance Form')}\n\nEmployee: ${nameEn} ${idEn}\nLast working day: ${meta.last_working_day || today}\n\nClearance checklist:\n  □ Laptop / equipment returned\n  □ Access badges returned\n  □ Email account disabled\n  □ Project handover completed\n  □ GOSI deregistered (if applicable)\n  □ Bank-account details confirmed for final settlement\n  □ NDA / IP obligations acknowledged\n\nSigned by department heads:\n_____ Direct Manager    _____ Finance    _____ IT    _____ HR\n\n${_signEn()}`,
+        ar: `${hdrAr('إخلاء طرف')}\n\nالموظف: ${nameAr} ${idAr}\nآخر يوم عمل: ${meta.last_working_day || today}\n\nقائمة المعالجات:\n  □ إرجاع اللابتوب / المعدات\n  □ إرجاع بطاقات الدخول\n  □ تعطيل حساب البريد الإلكتروني\n  □ إكمال تسليم المشاريع\n  □ إلغاء الاشتراك في التأمينات (إن كان موظف سعودي)\n  □ تأكيد بيانات الحساب البنكي للتسوية النهائية\n  □ التذكير بالتزامات السرية والملكية الفكرية\n\nالتوقيعات:\n_____ المدير المباشر    _____ المالية    _____ تقنية المعلومات    _____ الموارد البشرية\n\n${_signAr()}`,
+      }
+
+    case 'retirement_letter':
+      return {
+        en: `${hdr('Retirement Letter')}\nDear ${nameEn},\n\nIt is with appreciation that we acknowledge your retirement from Emergize, effective ${meta.retirement_date || today}, after ${meta.years_served || '—'} years of dedicated service. Your end-of-service benefits will be processed per Saudi Labour Law Article 84 and GOSI pension regulations. We thank you for your significant contributions and wish you a long, healthy retirement.${ctxLine}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr('خطاب تقاعد')}\nالأخ/ت ${nameAr}،\n\nبكل تقدير، نُعلن تقاعدك من شركة إيميرجايز اعتباراً من ${meta.retirement_date || today}، بعد ${meta.years_served || '—'} عاماً من الخدمة المخلصة. سيتم احتساب مستحقات نهاية الخدمة وفقاً للمادة 84 من نظام العمل وأنظمة معاشات التأمينات. شكراً لك على إسهاماتك القيّمة ونتمنى لك تقاعداً مديداً ومليئاً بالصحة.${ctxLineAr}\n\n${refsLineAr}\n\n${_signAr()}`,
+      }
+
+    // ---- CATCH-ALL ---------------------------------------------------------
     case 'custom':
     default:
       return {
-        en: `Subject: ${subject}\nTo: ${emp.full_name}\nDate: ${today}\n${ctxLine}\n\n${refsLine}\n\nSigned,\nEmergize HR`,
-        ar: `الموضوع: ${subject}\nإلى: ${emp.full_name_ar || emp.full_name}\nالتاريخ: ${today}\n${ctxLineAr}\n\n${refsLineAr}\n\nالتوقيع،\nالموارد البشرية - إيميرجايز`,
+        en: `${hdr(subject || 'Letter')}\n\n${context || '(letter content)'}\n\n${refsLine}\n\n${_signEn()}`,
+        ar: `${hdrAr(subject || 'خطاب')}\n\n${context || '(محتوى الخطاب)'}\n\n${refsLineAr}\n\n${_signAr()}`,
       }
   }
 }
@@ -4366,11 +4717,12 @@ async function requestHrLetterTool(input) {
   // process, then admin completes it.
   const today = new Date().toISOString().slice(0, 10)
   const refs = KSA_LABOUR_LAW_CLAUSES[input.letter_type] || []
+  const meta = input.meta || {}
   const { data: empFull } = await supabase
     .from('team_members')
-    .select('id, full_name, full_name_ar, job_title, job_title_ar, department, hire_date, base_salary, salary_currency, iqama_number, national_id')
+    .select('id, full_name, full_name_ar, job_title, job_title_ar, department, hire_date, base_salary, salary_currency, housing_allowance, transport_allowance, other_allowances, iqama_number, national_id')
     .eq('id', emp.id).maybeSingle()
-  const bodies = _renderLetterBody(input.letter_type, empFull, subject, input.reason, refs, today)
+  const bodies = _renderLetterBody(input.letter_type, empFull, subject, input.reason, refs, today, meta)
 
   const { data: letter, error } = await supabase.from('hr_letters').insert({
     employee_id: emp.id,
@@ -4380,6 +4732,7 @@ async function requestHrLetterTool(input) {
     body_ar: bodies.ar,
     reference_clauses: refs,
     status: 'draft',
+    meta,
   }).select('id').single()
   if (error) throw new Error(`request letter failed: ${error.message}`)
 
@@ -4400,6 +4753,238 @@ async function requestHrLetterTool(input) {
     letter_type: input.letter_type,
     review_url: `/hr/letters/${letter.id}`,
     message: 'Letter draft created. Admin has been notified to review and send.',
+  }
+}
+
+// =============================================================================
+// LOAN / SALARY ADVANCE WORKFLOW
+// Employee submits → admin approves on /hr/loans → on approval, monthly
+// deductions auto-write into payroll_line_items for the next N months.
+// KSA Labour Law Article 92: total deductions can't exceed 50% of net pay.
+// =============================================================================
+
+async function _resolveEmployeeIdForLoan(input) {
+  if (input.override_employee_id) {
+    const { data } = await supabase
+      .from('team_members').select('id, full_name, base_salary, salary_currency')
+      .eq('id', input.override_employee_id).maybeSingle()
+    return data
+  }
+  return await _resolveEmployeeFromSender()
+}
+
+async function requestLoanTool(input) {
+  const emp = await _resolveEmployeeIdForLoan(input)
+  if (!emp) {
+    throw new Error("Couldn't resolve which team member you are. Ask the admin to add your WhatsApp number to your team_members record, or use override_employee_id.")
+  }
+
+  const amount = Number(input.amount)
+  const term = Number(input.term_months)
+  if (!amount || amount <= 0) throw new Error('amount must be a positive number')
+  if (!term || term < 1 || term > 60) throw new Error('term_months must be 1..60')
+  const monthly = Math.round((amount / term) * 100) / 100
+  const reason = input.reason || null
+
+  // Sanity check: monthly deduction should not exceed ~50% of base salary
+  const baseSalary = Number(emp.base_salary || 0)
+  if (baseSalary && monthly > baseSalary * 0.5) {
+    throw new Error(`Monthly deduction (${monthly}) exceeds 50% of base salary (${baseSalary}). Reduce amount or extend term_months — KSA Labour Law Article 92.`)
+  }
+
+  // First deduction defaults to next month
+  const now = new Date()
+  let fdMonth = (input.first_deduction_month) ?? (now.getUTCMonth() + 2)
+  let fdYear = (input.first_deduction_year) ?? now.getUTCFullYear()
+  if (fdMonth > 12) { fdMonth -= 12; fdYear += 1 }
+
+  // Create the loan row
+  const { data: loan, error } = await supabase.from('hr_loan_requests').insert({
+    employee_id: emp.id,
+    amount,
+    currency: emp.salary_currency || 'SAR',
+    reason,
+    term_months: term,
+    monthly_deduction: monthly,
+    first_deduction_month: fdMonth,
+    first_deduction_year: fdYear,
+    status: 'submitted',
+  }).select('id').single()
+  if (error) throw new Error(`loan request failed: ${error.message}`)
+
+  // Generate the formal loan-request letter (draft) and link it
+  const { data: empFull } = await supabase
+    .from('team_members')
+    .select('id, full_name, full_name_ar, job_title, job_title_ar, department, hire_date, base_salary, salary_currency, iqama_number, national_id')
+    .eq('id', emp.id).maybeSingle()
+  const today = new Date().toISOString().slice(0, 10)
+  const refs = KSA_LABOUR_LAW_CLAUSES['loan_request_letter']
+  const meta = {
+    amount, term_months: term, monthly_deduction: monthly, reason,
+    first_deduction: `${fdYear}-${String(fdMonth).padStart(2,'0')}`,
+  }
+  const bodies = _renderLetterBody('loan_request_letter', empFull, `Loan request — ${emp.full_name}`, reason, refs, today, meta)
+  const { data: letter } = await supabase.from('hr_letters').insert({
+    employee_id: emp.id,
+    letter_type: 'loan_request_letter',
+    subject: `Loan request — ${emp.full_name} — ${amount} ${empFull.salary_currency || 'SAR'} over ${term}m`,
+    body_en: bodies.en,
+    body_ar: bodies.ar,
+    reference_clauses: refs,
+    status: 'draft',
+    meta,
+  }).select('id').single()
+
+  await supabase.from('hr_loan_requests').update({ letter_id: letter?.id }).eq('id', loan.id).catch(() => null)
+
+  // Notify admin
+  await supabase.from('notifications').insert({
+    user_id: null,
+    title: `Loan request: ${emp.full_name}`,
+    message: `${emp.full_name} requested a loan of ${amount} ${empFull.salary_currency || 'SAR'} over ${term} months (${monthly}/month). Review at /hr/loans.`,
+    type: 'loan_request',
+    related_id: loan.id,
+    is_read: false,
+  }).catch(() => null)
+
+  await revalidate(['/hr/loans', '/hr/letters', '/notifications'])
+  return {
+    requested: true,
+    loan_id: loan.id,
+    letter_id: letter?.id,
+    amount, term_months: term, monthly_deduction: monthly,
+    review_url: `/hr/loans/${loan.id}`,
+    message: `Loan request submitted. Admin will review and approve. Monthly deduction: ${monthly} for ${term} months starting ${fdYear}-${String(fdMonth).padStart(2,'0')}.`,
+  }
+}
+
+async function findLoansTool(input) {
+  let q = supabase.from('hr_loan_requests')
+    .select('id, employee_id, amount, currency, reason, term_months, monthly_deduction, first_deduction_year, first_deduction_month, status, decision_note, amount_repaid, created_at, team_members:employee_id (full_name, full_name_ar, job_title)')
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Math.min(100, input?.limit ?? 25)))
+  if (input?.status) q = q.eq('status', input.status)
+  if (input?.employee_id) q = q.eq('employee_id', input.employee_id)
+  if (input?.employee_name) {
+    const id = await findOneTeamMemberIdByName(input.employee_name)
+    if (id) q = q.eq('employee_id', id)
+  }
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return {
+    count: data.length,
+    rows: data.map((r) => ({ ...r, employee_name: r.team_members?.full_name })),
+  }
+}
+
+async function approveLoanTool(input) {
+  await _requireAdmin()
+  if (!input.loan_id) throw new Error('loan_id required')
+  const { data: loan } = await supabase
+    .from('hr_loan_requests').select('*').eq('id', input.loan_id).maybeSingle()
+  if (!loan) throw new Error('loan not found')
+  if (loan.status !== 'submitted') throw new Error(`Cannot approve — current status is ${loan.status}.`)
+
+  const { error } = await supabase.from('hr_loan_requests').update({
+    status: 'approved',
+    approved_at: new Date().toISOString(),
+    decision_note: input.decision_note ?? null,
+  }).eq('id', input.loan_id).eq('status', 'submitted')
+  if (error) throw new Error(`approve failed: ${error.message}`)
+
+  await revalidate(['/hr/loans'])
+  return { approved: true, id: input.loan_id, message: `Loan approved. Monthly deduction of ${loan.monthly_deduction} will be added to payroll_line_items starting ${loan.first_deduction_year}-${String(loan.first_deduction_month).padStart(2,'0')}.` }
+}
+
+async function rejectLoanTool(input) {
+  await _requireAdmin()
+  if (!input.loan_id) throw new Error('loan_id required')
+  if (!input.decision_note) throw new Error('decision_note required when rejecting')
+  const { error } = await supabase.from('hr_loan_requests').update({
+    status: 'rejected',
+    approved_at: new Date().toISOString(),
+    decision_note: input.decision_note,
+  }).eq('id', input.loan_id).eq('status', 'submitted')
+  if (error) throw new Error(`reject failed: ${error.message}`)
+  await revalidate(['/hr/loans'])
+  return { rejected: true, id: input.loan_id }
+}
+
+async function myLoansTool() {
+  const emp = await _resolveSelfOrThrow()
+  const { data } = await supabase.from('hr_loan_requests')
+    .select('id, amount, currency, reason, term_months, monthly_deduction, status, decision_note, amount_repaid, created_at, first_deduction_year, first_deduction_month')
+    .eq('employee_id', emp.id).order('created_at', { ascending: false })
+  return { employee_name: emp.full_name, rows: data ?? [] }
+}
+
+// =============================================================================
+// SICK LEAVE WITH DOCTOR NOTE
+// Convenience wrapper around request_leave_for_self that attaches a medical
+// certificate PDF/image (uploaded via WA) and auto-drafts the sick_leave_notice
+// letter.
+// =============================================================================
+
+async function submitSickLeaveTool(input) {
+  const emp = await _resolveSelfOrThrow()
+  const start = String(input.start_date), end = String(input.end_date || input.start_date)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    throw new Error('start_date / end_date must be ISO YYYY-MM-DD.')
+  }
+  const days = _daysBetween(start, end)
+  if (days < 1) throw new Error('end_date must be on or after start_date.')
+
+  // Create the leave_requests row with the attachment fields populated
+  const { data: leave, error } = await supabase.from('leave_requests').insert({
+    employee_id: emp.id,
+    type: 'sick',
+    start_date: start, end_date: end, days,
+    status: 'pending',
+    reason: input.reason || 'Illness',
+    attachment_url: input.doctor_note_url || null,
+    attachment_name: input.doctor_note_filename || (input.doctor_note_url ? 'doctor-note' : null),
+  }).select('id').single()
+  if (error) throw new Error(`sick leave failed: ${error.message}`)
+
+  // Generate the formal sick-leave notice letter
+  const { data: empFull } = await supabase
+    .from('team_members')
+    .select('id, full_name, full_name_ar, job_title, job_title_ar, department, hire_date, base_salary, salary_currency, iqama_number, national_id')
+    .eq('id', emp.id).maybeSingle()
+  const refs = KSA_LABOUR_LAW_CLAUSES['sick_leave_notice']
+  const meta = {
+    start_date: start, end_date: end, days,
+    doctor_note_url: input.doctor_note_url || null,
+  }
+  const bodies = _renderLetterBody('sick_leave_notice', empFull,
+    `Sick leave — ${emp.full_name} — ${start} to ${end}`,
+    input.reason, refs, new Date().toISOString().slice(0, 10), meta)
+  await supabase.from('hr_letters').insert({
+    employee_id: emp.id,
+    letter_type: 'sick_leave_notice',
+    subject: `Sick leave — ${emp.full_name} — ${start} to ${end}`,
+    body_en: bodies.en, body_ar: bodies.ar,
+    reference_clauses: refs, status: 'draft', meta,
+  })
+
+  // Admin notification
+  await supabase.from('notifications').insert({
+    user_id: null,
+    title: `Sick leave: ${emp.full_name}`,
+    message: `${emp.full_name} reported sick leave ${start} → ${end} (${days}d).${input.doctor_note_url ? ' Doctor note attached.' : ''} Review at /hr/leaves.`,
+    type: 'sick_leave',
+    related_id: leave.id,
+    is_read: false,
+  }).catch(() => null)
+
+  await revalidate(['/hr', '/notifications'])
+  return {
+    submitted: true,
+    leave_id: leave.id,
+    employee_name: emp.full_name,
+    days, start, end,
+    has_doctor_note: !!input.doctor_note_url,
+    message: `Sick-leave notice recorded (${days} day${days === 1 ? '' : 's'}). ${input.doctor_note_url ? 'Doctor note attached. ' : 'Submit doctor note when you can. '}HR has been notified.`,
   }
 }
 
@@ -4578,6 +5163,13 @@ const registry = {
   request_hr_letter: requestHrLetterTool,
   my_letters: myLettersTool,
   my_documents: myDocumentsTool,
+  // HR — loans + sick leave
+  request_loan: requestLoanTool,
+  find_loans: findLoansTool,
+  approve_loan: approveLoanTool,
+  reject_loan: rejectLoanTool,
+  my_loans: myLoansTool,
+  submit_sick_leave: submitSickLeaveTool,
   // weekly reports — service-block model
   create_weekly_report: createWeeklyReport,
   find_weekly_report: findWeeklyReport,

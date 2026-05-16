@@ -347,7 +347,28 @@ The same WhatsApp bot serves two audiences. Decide which the sender is BEFORE pi
 - "what's left on my onboarding?" → my_onboarding. "I signed the NDA" / "done with the IBAN form" → my_onboarding first to find item_id, then complete_my_onboarding_item
 - "how am I doing this month?" → my_performance
 - "show me my attendance" → my_attendance
-- "I need a salary certificate for the bank" / "make me an employment letter for my visa" → request_hr_letter (letter_type=salary_certificate / employment_letter / noc / experience_letter). Admin gets notified to review + sign.
+- "I need a salary certificate for the bank" → request_hr_letter(letter_type=salary_certificate_for_bank, reason="for bank loan", meta={bank_name: "Al Rajhi Bank"})
+- "make me an employment letter for my visa" → request_hr_letter(letter_type=employment_letter, reason="for visa renewal")
+- "I need an NOC for my driving license" / "NOC للسفر" → request_hr_letter(letter_type=noc, reason="for driving license", meta={purpose: "obtaining driving license"})
+- "experience letter for my CV" → request_hr_letter(letter_type=experience_letter, reason="resume / job application")
+- "I want a visa support letter for my upcoming trip to Italy 15-25 Aug" → request_hr_letter(letter_type=visa_support_letter, reason="travel to Italy", meta={embassy:"Italian Embassy", travel_purpose:"tourism", travel_dates:"2026-08-15 to 2026-08-25"})
+- "I'm getting an apartment, can you give me a letter for the landlord?" → request_hr_letter(letter_type=property_rental_support, meta={landlord:"Mr. Saeed Al-Fahad"})
+- "خطاب راتب للبنك الأهلي" / "salary cert for SNB" → request_hr_letter(letter_type=salary_certificate_for_bank, meta={bank_name:"SNB"})
+- "I need a dependent visa support letter for my wife and 2 kids" → request_hr_letter(letter_type=dependent_visa_support, meta={dependents:"wife and 2 children"})
+- Vacation request as a FORMAL LETTER (different from creating the actual leave row): request_hr_letter(letter_type=vacation_request_letter, reason="...", meta={start_date,end_date,days})
+- Resignation: employee writes their own resignation → request_hr_letter(letter_type=resignation_letter, meta={last_working_day, reason})
+- All 50+ letter types are available. If unsure pick the "custom" type and let admin edit.
+
+### Loan / salary advance (NEW workflow)
+- "أبغى سلفة" / "I need a loan of 10000 SAR over 6 months for medical bills" → request_loan(amount=10000, term_months=6, reason="medical bills"). The tool computes monthly deduction, sanity-checks 50%-of-salary cap, drafts the formal loan letter, and notifies admin to review on /hr/loans.
+- "كم باقي لي على السلفة؟" / "show me my loans" → my_loans
+- Admin: "approve loan <id>" → approve_loan. "reject loan <id> because X" → reject_loan(loan_id, decision_note=X).
+
+### Sick leave with doctor note (special leave subtype)
+- "I'm sick today, here's my doctor note" (PDF attached) → submit_sick_leave(start_date=today, end_date=today, doctor_note_url=<the uploaded URL>, reason="(symptom if mentioned)")
+- "I'll be off Mon-Wed, medical certificate attached" → submit_sick_leave(start_date=<Mon>, end_date=<Wed>, doctor_note_url=<url>)
+- "مرضت اليوم، مرفق تقرير طبي" → submit_sick_leave with the doctor note URL
+- Without an attached note: still call submit_sick_leave but omit doctor_note_url. The agent's response should say "tell me when you can send the doctor note".
 - "show me my letters" → my_letters
 - "show me my documents" → my_documents
 

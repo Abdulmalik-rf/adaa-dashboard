@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
-import { Briefcase, AlertTriangle, ClipboardList, UserPlus, FileText, FileBadge, TrendingUp, Clock, Calculator } from 'lucide-react'
+import { Briefcase, AlertTriangle, ClipboardList, UserPlus, FileText, FileBadge, TrendingUp, Clock, Calculator, Coins } from 'lucide-react'
 
 // Pill strip on every /hr/** page. Mirrors AccountingSubNav.
 export function HrSubNav() {
@@ -16,6 +16,7 @@ export function HrSubNav() {
     { href: '/hr/onboarding',      key: 'onboarding',  icon: ClipboardList, label: (t as any).hrOnboardingNav ?? 'Onboarding' },
     { href: '/hr/candidates',      key: 'candidates',  icon: UserPlus,      label: (t as any).hrCandidatesNav ?? 'Candidates' },
     { href: '/hr/letters',         key: 'letters',     icon: FileText,      label: (t as any).hrLettersNav ?? 'Letters' },
+    { href: '/hr/loans',           key: 'loans',       icon: Coins,         label: (t as any).hrLoansNav ?? 'Loans' },
     { href: '/hr/documents',       key: 'documents',   icon: FileBadge,     label: (t as any).hrDocumentsNav ?? 'Documents' },
     { href: '/hr/performance',     key: 'performance', icon: TrendingUp,    label: (t as any).hrPerformanceNav ?? 'Performance' },
     { href: '/hr/attendance',      key: 'attendance',  icon: Clock,         label: (t as any).hrAttendanceNav ?? 'Attendance' },

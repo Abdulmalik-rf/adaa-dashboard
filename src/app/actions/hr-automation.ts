@@ -565,6 +565,58 @@ export async function buildPerformanceBrief(input: { employee_id: string; days?:
 }
 
 // =============================================================================
+// Loan requests — admin approve / reject
+// =============================================================================
+
+export async function approveLoanRequest(input: { loan_id: string; decision_note?: string }): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
+  try {
+    const me = await getCurrentUser()
+    if (me?.profile?.role !== 'admin') return { ok: false, error: 'Admin only.' }
+    const { data: loan } = await sb()
+      .from('hr_loan_requests').select('id, status').eq('id', input.loan_id).maybeSingle()
+    if (!loan) return { ok: false, error: 'Loan not found.' }
+    if ((loan as any).status !== 'submitted') {
+      return { ok: false, error: `Cannot approve — current status is ${(loan as any).status}.` }
+    }
+    const { error } = await sb().from('hr_loan_requests').update({
+      status: 'approved',
+      approved_at: new Date().toISOString(),
+      approved_by: me.id,
+      decision_note: input.decision_note ?? null,
+    } as any).eq('id', input.loan_id).eq('status', 'submitted')
+    if (error) return { ok: false, error: error.message }
+    revalidatePath('/hr/loans')
+    revalidatePath('/hr')
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Unexpected error' }
+  }
+}
+
+export async function rejectLoanRequest(input: { loan_id: string; decision_note: string }): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
+  try {
+    const me = await getCurrentUser()
+    if (me?.profile?.role !== 'admin') return { ok: false, error: 'Admin only.' }
+    if (!input.decision_note) return { ok: false, error: 'A reason is required when rejecting.' }
+    const { error } = await sb().from('hr_loan_requests').update({
+      status: 'rejected',
+      approved_at: new Date().toISOString(),
+      approved_by: me.id,
+      decision_note: input.decision_note,
+    } as any).eq('id', input.loan_id).eq('status', 'submitted')
+    if (error) return { ok: false, error: error.message }
+    revalidatePath('/hr/loans')
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Unexpected error' }
+  }
+}
+
+// =============================================================================
 // F12: HR documents — record an upload from the dashboard
 // =============================================================================
 

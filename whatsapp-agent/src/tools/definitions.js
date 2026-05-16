@@ -2296,7 +2296,7 @@ const hrTools = [
     function: {
       name: 'draft_hr_letter',
       description:
-        "Draft a KSA labour-law-aware HR letter (verbal/written/final warning, termination, salary certificate, employment letter, NOC, experience letter). Returns bilingual Arabic+English body referencing the relevant labour-law articles. Saves a draft to hr_letters that admin can review on /hr/letters before flipping to 'sent'.",
+        "Draft any of 50+ KSA-labour-law-aware HR documents — bilingual Arabic+English body, references KSA Labour Law articles, citation-ready for embassies/banks/government. Saves to hr_letters as 'draft' which the admin reviews + sends from /hr/letters/<id>. Admin-only — for employee-initiated requests use request_hr_letter.",
       parameters: {
         type: 'object',
         properties: {
@@ -2304,11 +2304,17 @@ const hrTools = [
           employee_name: { type: 'string' },
           letter_type: {
             type: 'string',
-            enum: ['verbal_warning','written_warning','final_warning','termination','salary_certificate','employment_letter','noc','experience_letter','custom'],
+            description: "Pick the template that matches the document needed. Categories: HIRING (job_offer, employment_contract, employment_letter, nda, probation_completion, job_description) | COMPENSATION (salary_certificate, salary_certificate_for_bank, raise_letter, promotion_letter, bonus_letter, compensation_review) | LEAVE (vacation_request_letter, sick_leave_notice, maternity/paternity/hajj/bereavement/unpaid_leave_letter, return_to_work_letter, leave_approval/rejection_letter) | DISCIPLINE (verbal/written/final_warning, suspension_letter, disciplinary_notice, termination) | EXTERNAL (noc, experience_letter, bank_loan_support_letter, visa_support_letter, dependent_visa_support, embassy_letter, property_rental_support, recommendation_letter) | KSA (hrdf_letter, gosi_subscription_letter, saudization_letter, mudawana_amendment) | FINANCIAL (loan_request_letter, salary_advance_letter, salary_advance_repayment_schedule, expense_reimbursement_letter) | LIFECYCLE (resignation_letter, resignation_acceptance, transfer_letter, relocation_letter, final_settlement_letter, exit_clearance_letter, retirement_letter) | custom",
+            enum: ['job_offer','employment_contract','employment_letter','nda','probation_completion','job_description','salary_certificate','salary_certificate_for_bank','raise_letter','promotion_letter','bonus_letter','compensation_review','vacation_request_letter','sick_leave_notice','maternity_leave_letter','paternity_leave_letter','hajj_leave_letter','bereavement_leave_letter','unpaid_leave_letter','return_to_work_letter','leave_approval_letter','leave_rejection_letter','verbal_warning','written_warning','final_warning','suspension_letter','disciplinary_notice','termination','noc','experience_letter','bank_loan_support_letter','visa_support_letter','dependent_visa_support','embassy_letter','property_rental_support','recommendation_letter','hrdf_letter','gosi_subscription_letter','saudization_letter','mudawana_amendment','loan_request_letter','salary_advance_letter','salary_advance_repayment_schedule','expense_reimbursement_letter','resignation_letter','resignation_acceptance','transfer_letter','relocation_letter','final_settlement_letter','exit_clearance_letter','retirement_letter','custom'],
           },
           subject: { type: 'string', description: 'Short subject line.' },
           context: { type: 'string', description: 'What happened / why this letter — used to draft the body.' },
           reference_clauses: { type: 'array', items: { type: 'string' }, description: 'Optional. Specific KSA Labour Law article numbers to cite.' },
+          meta: {
+            type: 'object',
+            description: "Type-specific data the template uses. Examples: { amount, term_months, monthly_deduction, reason } for loan_request_letter | { new_salary, old_salary, effective_date, pct_increase } for raise_letter | { new_title, new_department, effective_date, new_salary } for promotion_letter | { start_date, end_date, days, coverage } for vacation_request_letter | { last_working_day, reason } for resignation_acceptance | { eosb_amount, years_served, unused_leave_days, unused_leave_value, pending_salary, other_dues, deductions, net_total } for final_settlement_letter | { bank_name } for salary_certificate_for_bank | { embassy, travel_purpose, travel_dates } for visa_support_letter. Pass any keys the template can use — unknown keys are ignored.",
+            additionalProperties: true,
+          },
         },
         required: ['letter_type', 'subject'],
       },
@@ -2491,13 +2497,22 @@ const hrTools = [
     type: 'function',
     function: {
       name: 'request_hr_letter',
-      description: "Employee asks the bot to draft an HR letter for them (salary certificate, employment letter, NOC, experience letter). Creates a draft in hr_letters + notifies admin to review + sign. Use when employee says \"I need a salary certificate for my visa\", \"can you make me an employment letter for the bank?\".",
+      description: "Employee asks the bot to draft an HR letter for them. Use when employee says \"I need a salary certificate for my visa\", \"can you make me an employment letter for the bank?\", \"خطاب تعريف بالراتب من فضلك\", \"I need an NOC to drive a rental car\", \"experience letter for my CV\", etc. Creates a DRAFT in hr_letters + notifies admin to review + sign. Self-service for employees (no admin needed). For destructive letters (warnings, terminations) use draft_hr_letter — that's admin-only.",
       parameters: {
         type: 'object',
         properties: {
-          letter_type: { type: 'string', enum: ['salary_certificate','employment_letter','noc','experience_letter','custom'] },
+          letter_type: {
+            type: 'string',
+            description: 'Which document. Employee can self-request these.',
+            enum: ['salary_certificate','salary_certificate_for_bank','employment_letter','noc','experience_letter','bank_loan_support_letter','visa_support_letter','dependent_visa_support','embassy_letter','property_rental_support','recommendation_letter','hrdf_letter','gosi_subscription_letter','vacation_request_letter','return_to_work_letter','resignation_letter','custom'],
+          },
           subject: { type: 'string', description: 'Optional. If omitted, defaults to "<letter type> for <employee name>".' },
-          reason: { type: 'string', description: 'Why do they need it? (e.g. "for visa renewal", "bank loan application"). Helps admin contextualize.' },
+          reason: { type: 'string', description: 'Why do they need it? (e.g. "for visa renewal", "bank loan application", "property rental"). Helps admin contextualize + becomes the letter context.' },
+          meta: {
+            type: 'object',
+            description: 'Type-specific data. For bank/visa/embassy letters: { bank_name, embassy, travel_purpose, travel_dates }. For dependent visa: { dependents: "wife, 2 children" }. For rental: { landlord }.',
+            additionalProperties: true,
+          },
         },
         required: ['letter_type'],
       },
@@ -2517,6 +2532,106 @@ const hrTools = [
       name: 'my_documents',
       description: "List the caller's documents on file — passport / iqama / visa scans, contracts, certs. Read-only.",
       parameters: { type: 'object', properties: {} },
+    },
+  },
+
+  // =========================================================================
+  // LOAN / SALARY ADVANCE — employee submits, admin approves on /hr/loans,
+  // deduction flows into payroll.
+  // =========================================================================
+  {
+    type: 'function',
+    function: {
+      name: 'request_loan',
+      description: "Submit a salary loan / advance request. Use when employee says \"I need a loan of 10000 SAR for 6 months\", \"can I get a 5000 salary advance\", \"أبغى سلفة\", \"borrow against my salary\". Auto-resolves the employee from the WhatsApp sender, creates an hr_loan_requests row + a formal loan_request_letter draft, notifies admin to review on /hr/loans. Enforces KSA Labour Law Article 92: max 50% of base salary as monthly deduction.",
+      parameters: {
+        type: 'object',
+        properties: {
+          amount: { type: 'number', description: 'Amount requested in employee\'s salary currency.' },
+          term_months: { type: 'integer', description: 'Repayment period in months (1..60).' },
+          reason: { type: 'string', description: 'Why they need the loan (medical, home, education, emergency, etc.). Helps admin decision.' },
+          first_deduction_month: { type: 'integer', description: 'Optional 1-12. Defaults to next month.' },
+          first_deduction_year: { type: 'integer', description: 'Optional. Defaults to current year (or next year if month wraps).' },
+          override_employee_id: { type: 'string', description: 'Admin only — file on behalf of another employee.' },
+        },
+        required: ['amount', 'term_months'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_loans',
+      description: 'List loan requests. Use for "any pending loans?" / "show all loans" (admin) — auto-scoped to all employees. Or by status.',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['draft','submitted','approved','rejected','repaying','repaid','cancelled'] },
+          employee_id: { type: 'string' },
+          employee_name: { type: 'string' },
+          limit: { type: 'integer', description: 'Default 25.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'approve_loan',
+      description: 'Approve a pending loan request. Admin-only. Once approved, the system auto-writes monthly deduction lines into payroll_line_items for the next N months.',
+      parameters: {
+        type: 'object',
+        properties: {
+          loan_id: { type: 'string', description: 'hr_loan_requests.id (UUID).' },
+          decision_note: { type: 'string', description: 'Optional note shown to employee.' },
+        },
+        required: ['loan_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'reject_loan',
+      description: 'Reject a pending loan request. Admin-only.',
+      parameters: {
+        type: 'object',
+        properties: {
+          loan_id: { type: 'string' },
+          decision_note: { type: 'string', description: 'Reason — required.' },
+        },
+        required: ['loan_id', 'decision_note'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_loans',
+      description: "Caller's own loan history + remaining balance. Use for \"show me my loans\", \"how much do I still owe\", \"كم باقي لي على السلفة\".",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+
+  // =========================================================================
+  // SICK LEAVE with doctor note (special case of leave_requests)
+  // =========================================================================
+  {
+    type: 'function',
+    function: {
+      name: 'submit_sick_leave',
+      description: "Convenience wrapper around request_leave_for_self for sick leave with an attached doctor's note. Use when employee says \"I'm sick today, here's my doctor note\", \"I'll be off the next 3 days, medical certificate attached\", \"مرضت اليوم\". If they forwarded a PDF / image, pass its url as doctor_note_url. Creates the leave_requests row + sick_leave_notice letter draft + admin notification.",
+      parameters: {
+        type: 'object',
+        properties: {
+          start_date: { type: 'string', description: 'ISO YYYY-MM-DD. Required.' },
+          end_date: { type: 'string', description: 'ISO. Defaults to start_date.' },
+          reason: { type: 'string', description: 'Optional brief description (cold, surgery, etc.).' },
+          doctor_note_url: { type: 'string', description: 'URL of the uploaded medical certificate (from the [uploaded_document: …] or [uploaded_image: …] tag).' },
+          doctor_note_filename: { type: 'string', description: 'Optional original filename.' },
+        },
+        required: ['start_date'],
+      },
     },
   },
 ]

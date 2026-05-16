@@ -308,56 +308,76 @@ async function handleOne(sock, msg) {
 
   const sender = jid.split('@')[0]
 
-  // ---- Sender classification — 3 tiers: admin / employee / public ----
-  // We no longer reject anyone. Strangers get a customer-service tier; team
-  // members get HR self-service; admins get the full destructive toolkit.
-  // The senderRole + senderEmployeeId are passed downstream via withRequest()
-  // so the agent system prompt can branch and the tool executors can gate.
+  // ---- Sender classification — role-aware ----
+  // Roles: admin / hr / finance / manager / staff / public.
+  // No one is rejected; the agent prompt + tool gates adapt to the role.
+  // senderRole, senderEmployeeId, senderEmployeeName, senderJobTitle,
+  // senderDepartment are threaded via withRequest() so:
+  //   - agent.js systemInstructions() builds a role-specific preamble
+  //   - executors.js _requireRole() gates destructive tools
+  //   - _resolveEmployeeFromSender() skips a DB call when we already know
   let senderRole = 'public'
   let senderEmployeeId = null
   let senderEmployeeName = null
+  let senderJobTitle = null
+  let senderDepartment = null
 
   const phoneCandidate = extractSenderPhone(msg)
+  const envAdmin = ALLOWED_SET.has(sender) || (phoneCandidate && ALLOWED_PHONES.has(phoneCandidate))
 
-  if (ALLOWED_SET.has(sender) || (phoneCandidate && ALLOWED_PHONES.has(phoneCandidate))) {
-    senderRole = 'admin'
-    // Auto-learn LID for known-phone admins (same behaviour as before)
-    if (phoneCandidate && ALLOWED_PHONES.has(phoneCandidate) && !ALLOWED_SET.has(sender)) {
-      ALLOWED_SET.add(sender)
-      LEARNED_LIDS.add(sender)
-      const notifyJid = PHONE_TO_NOTIFY_JID.get(phoneCandidate)
-      if (notifyJid) SENDER_TO_NOTIFY_JID.set(sender, notifyJid)
-      console.log(`[learn] LID ${sender} -> phone ${phoneCandidate} (admin, auto-learned)`)
-    }
-  } else {
-    // Look up the sender in team_members. Match by suffix on the phone
-    // (last 9 digits, KSA convention). If admin role on the row, escalate
-    // to admin; otherwise employee.
-    const digitsTail = String(sender).replace(/\D/g, '').slice(-9)
-    const phoneTail = phoneCandidate ? String(phoneCandidate).replace(/\D/g, '').slice(-9) : null
-    try {
-      const { data: members } = await supabase
-        .from('team_members')
-        .select('id, full_name, role, whatsapp, phone, status')
-        .eq('status', 'active')
-      for (const m of (members ?? [])) {
-        const wa = String(m.whatsapp || '').replace(/\D/g, '')
-        const ph = String(m.phone || '').replace(/\D/g, '')
-        const matches = (digits) => digits && (wa.endsWith(digits) || ph.endsWith(digits))
-        if (matches(digitsTail) || matches(phoneTail)) {
-          senderEmployeeId = m.id
-          senderEmployeeName = m.full_name
-          senderRole = m.role === 'admin' ? 'admin' : 'employee'
-          break
+  // Look the sender up in team_members regardless — we want the name + title
+  // + dept + role for the prompt, even for admins.
+  const digitsTail = String(sender).replace(/\D/g, '').slice(-9)
+  const phoneTail = phoneCandidate ? String(phoneCandidate).replace(/\D/g, '').slice(-9) : null
+  try {
+    const { data: members } = await supabase
+      .from('team_members')
+      .select('id, full_name, role, job_title, department, whatsapp, phone, status')
+      .eq('status', 'active')
+    for (const m of (members ?? [])) {
+      const wa = String(m.whatsapp || '').replace(/\D/g, '')
+      const ph = String(m.phone || '').replace(/\D/g, '')
+      const matches = (digits) => digits && (wa.endsWith(digits) || ph.endsWith(digits))
+      if (matches(digitsTail) || matches(phoneTail)) {
+        senderEmployeeId = m.id
+        senderEmployeeName = m.full_name
+        senderJobTitle = m.job_title
+        senderDepartment = m.department
+        // Role precedence: env-admin always wins. Otherwise use whatever
+        // team_members.role says (admin / hr / finance / manager / staff).
+        if (envAdmin) {
+          senderRole = 'admin'
+        } else if (['admin', 'hr', 'finance', 'manager', 'staff'].includes(m.role)) {
+          senderRole = m.role
+        } else {
+          // Legacy "manager"/"staff" or unknown — default to staff
+          senderRole = 'staff'
         }
+        break
       }
-    } catch (lookupErr) {
-      // DB read failed — keep as public, log for diagnosis
-      console.warn('[sender-classify] team_members lookup failed:', lookupErr?.message)
     }
+  } catch (lookupErr) {
+    console.warn('[sender-classify] team_members lookup failed:', lookupErr?.message)
   }
 
-  console.log(`[accept] sender=${sender} jid=${jid} role=${senderRole}${senderEmployeeName ? ' (' + senderEmployeeName + ')' : ''}`)
+  // If the env-admin check passed but we didn't find them in team_members
+  // (rare — someone in ALLOWED_PHONE without a team_members row), still
+  // grant admin role.
+  if (envAdmin && senderRole !== 'admin') {
+    senderRole = 'admin'
+  }
+
+  // Auto-learn LID for known-phone admins (legacy behaviour, kept so reminders
+  // and proactive nags route back to the right JID).
+  if (envAdmin && phoneCandidate && ALLOWED_PHONES.has(phoneCandidate) && !ALLOWED_SET.has(sender)) {
+    ALLOWED_SET.add(sender)
+    LEARNED_LIDS.add(sender)
+    const notifyJid = PHONE_TO_NOTIFY_JID.get(phoneCandidate)
+    if (notifyJid) SENDER_TO_NOTIFY_JID.set(sender, notifyJid)
+    console.log(`[learn] LID ${sender} -> phone ${phoneCandidate} (admin, auto-learned)`)
+  }
+
+  console.log(`[accept] sender=${sender} jid=${jid} role=${senderRole}${senderEmployeeName ? ' (' + senderEmployeeName + (senderJobTitle ? ', ' + senderJobTitle : '') + ')' : ''}`)
 
   // Reply target — the JID to send the agent's response back on. This is
   // also the JID we tag onto reminders the user creates this turn.
@@ -406,7 +426,7 @@ async function handleOne(sock, msg) {
   // Run the entire handler inside an async-local request scope so deep
   // executors (add_reminder, send_quotation_pdf, etc.) can resolve the
   // current sender's JID without their signatures growing a sender param.
-  const reply = await withRequest({ senderJid: replyJid, sender, senderRole, senderEmployeeId, senderEmployeeName }, () =>
+  const reply = await withRequest({ senderJid: replyJid, sender, senderRole, senderEmployeeId, senderEmployeeName, senderJobTitle, senderDepartment }, () =>
     handleMessage(text, { images, imageUrls, documents, sender }),
   )
   await sock.sendMessage(jid, { text: reply })

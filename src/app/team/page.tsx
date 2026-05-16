@@ -8,6 +8,7 @@ import { AddTeamMemberModal } from "./AddTeamMemberModal"
 import { MemberLoginActions } from "./MemberLoginActions"
 import { deleteTeamMember } from "@/app/actions/team"
 import { TeamWorkload } from "./TeamWorkload"
+import { RoleSelect } from "./RoleSelect"
 
 export const revalidate = 30
 
@@ -73,11 +74,7 @@ export default async function TeamPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                   <div className="flex flex-col gap-1">
-                      <Badge variant="outline" className="w-fit text-[10px] uppercase font-bold tracking-wider">
-                         <Shield className="h-2 w-2 mr-1" /> {member.role}
-                      </Badge>
-                   </div>
+                   <RoleSelect memberId={member.id} currentRole={member.role || 'staff'} />
                 </TableCell>
                 <TableCell>
                   {member.salary != null ? (

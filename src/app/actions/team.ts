@@ -131,6 +131,30 @@ export async function updateTeamMember(id: string, updates: any) {
   revalidatePath('/team')
 }
 
+// Admin-only update of just the role. Used by the inline RoleSelect pill
+// on /team. Keeps role mutations out of the broader updateTeamMember
+// signature so accidental writes from other forms can't elevate someone.
+export async function updateTeamMemberRole(
+  input: { id: string; role: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const me = await getCurrentUser()
+    if (me?.profile?.role !== 'admin') return { ok: false, error: 'Admin only.' }
+    const allowed = ['admin', 'hr', 'finance', 'manager', 'staff']
+    if (!allowed.includes(input.role)) return { ok: false, error: `Invalid role: ${input.role}` }
+
+    // Service-role client so RLS doesn't block.
+    const supa = agentSupabase()
+    const { error } = await (supa as any).from('team_members').update({ role: input.role }).eq('id', input.id)
+    if (error) return { ok: false, error: error.message }
+    revalidatePath('/team')
+    revalidatePath('/hr')
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Unexpected error' }
+  }
+}
+
 export async function deleteTeamMember(id: string): Promise<void> {
   try {
     // Admin gate — only admins can delete team members

@@ -159,10 +159,12 @@ export function AddTeamMemberModal({ t }: { t: any }) {
                 <label className="text-sm font-semibold">{t.role}</label>
                 <div className="relative">
                   <ShieldCheck className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <select name="role" className="w-full p-2.5 pl-10 border rounded-xl bg-gray-50 text-gray-900 text-sm appearance-none">
-                    <option value="admin">Admin</option>
-                    <option value="manager">Manager</option>
-                    <option value="employee">Employee</option>
+                  <select name="role" defaultValue="staff" className="w-full p-2.5 pl-10 border rounded-xl bg-gray-50 text-gray-900 text-sm appearance-none">
+                    <option value="admin">Admin — full access</option>
+                    <option value="hr">HR — leave/payroll/letters/onboarding</option>
+                    <option value="finance">Finance — invoices/bills/Qoyod</option>
+                    <option value="manager">Manager — approve direct reports</option>
+                    <option value="staff">Staff — self-service only</option>
                   </select>
                 </div>
               </div>

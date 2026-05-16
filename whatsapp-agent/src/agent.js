@@ -3,6 +3,7 @@ import { runTool } from './tools/executors.js'
 import { getHistory, appendUser, appendAssistant } from './memory.js'
 import { listFacts } from './memory-store.js'
 import { getRequest } from './context.js'
+import { ROLE_LABELS, roleToolsBlock } from './role-capabilities.js'
 
 // The Codex backend at chatgpt.com/backend-api/codex/responses accepts ChatGPT
 // Plus OAuth JWTs. Uses the OpenAI Responses API shape with SSE streaming.
@@ -71,39 +72,75 @@ async function systemInstructions() {
         '\nUse these facts naturally when relevant. Call forget_fact(id) if the user asks to remove one.'
       : '\n\n## Saved memories\n(none yet)'
 
-  // Per-message context — set by src/index.js when it classifies the sender
-  // into one of three tiers: admin / employee / public.
+  // Per-message context — set by src/index.js when it classifies the sender.
+  // Roles: admin / hr / finance / manager / staff / public.
   const ctx = getRequest() ?? {}
   const senderRole = ctx.senderRole ?? 'public'
   const senderName = ctx.senderEmployeeName ?? null
+  const senderJobTitle = ctx.senderJobTitle ?? null
+  const senderDepartment = ctx.senderDepartment ?? null
+  const roleLabel = ROLE_LABELS[senderRole]?.en ?? 'Unknown'
 
-  let tierBlock = ''
+  // Build a per-role preamble. Universal frame: "you're talking to X (role,
+  // job title, department). They can call these tools, behave this way."
+  const whoLine = senderName
+    ? `${senderName}${senderJobTitle ? ` (${senderJobTitle}${senderDepartment ? ` · ${senderDepartment}` : ''})` : ''} — role=${senderRole} [${roleLabel}]`
+    : `unknown sender — role=${senderRole}`
+
+  let tierBlock = `\n\n## YOU ARE TALKING TO: ${whoLine}\n`
+
   if (senderRole === 'admin') {
-    tierBlock = `\n\n## YOU ARE TALKING TO AN ADMIN
-This sender is on the agency admin list. They have FULL access:
+    tierBlock += `
+This is the agency admin / owner. Everything is unlocked.
   • Every tool. No restrictions.
-  • Destructive HR ops are unlocked (approve_leave, generate_payroll, mark_payroll_paid, draft_hr_letter, start_onboarding, promote_candidate_to_employee).
-  • Cross-employee queries are allowed (performance_brief on any employee, find_payroll for anyone, etc.).
+  • Destructive HR + Finance ops unlocked (approve_leave, generate_payroll, mark_payroll_paid, draft_hr_letter, push_invoice, push_bill, approve_loan, etc.).
+  • Cross-employee + cross-client queries are allowed.
   • Speak directly and operationally. Confirm with one-line summaries.
 `
-  } else if (senderRole === 'employee') {
-    tierBlock = `\n\n## YOU ARE TALKING TO AN EMPLOYEE${senderName ? ` (${senderName})` : ''}
-This is a team member. They have SELF-SERVICE access only:
-  • All my_* tools (my_expiries, my_leaves, my_leave_balance, my_payroll, my_pay_breakdown, my_eosb, my_onboarding, my_performance, my_attendance, my_letters, my_documents).
-  • request_leave_for_self (submit own leave), log_attendance (check in/out), request_hr_letter (ask for a salary cert / NOC / etc.), request_my_salary_slip (resend own slip), complete_my_onboarding_item.
-  • They can also use general tools that don't touch sensitive cross-employee data: add_reminder, add_client_note, find_communication_logs, etc. — use judgment.
-  • DO NOT call destructive admin tools (approve_leave, generate_payroll, draft_hr_letter, etc.). Those will error with "Admin only…" — if the employee asks for one, reply gently: "Only the admin can do that — I've flagged it for them." and use request_hr_letter where applicable.
+  } else if (senderRole === 'hr') {
+    tierBlock += `
+This is the HR specialist / HR manager. They run people-ops for the agency.
+  • Available admin-level tools (in addition to all my_*/request_* self-service):
+${roleToolsBlock('hr')}
+  • Default to acting on their behalf without asking "is this OK?" — they have the role. Confirm + summarize.
+  • Tools they CAN'T call (will error "HR or ADMIN only…"): accounting/finance tools (push_invoice, push_bill, approve_invoice, approve_bill, push to Qoyod), cross-domain destructive ops outside HR. If they ask for one, say "That's a Finance thing — I've flagged the admin / finance lead."
+  • When they message about an employee, look the employee up first (find_team_member) then act on that employee's behalf.
+`
+  } else if (senderRole === 'finance') {
+    tierBlock += `
+This is the Finance / Accountant. They run money for the agency.
+  • Available admin-level tools (in addition to all my_*/request_* self-service):
+${roleToolsBlock('finance')}
+  • Default to acting on their behalf. They can push invoices/bills to Qoyod, approve payroll runs, approve loans, manage contract payments.
+  • Tools they CAN'T call (will error "FINANCE or ADMIN only…"): HR-only tools (approve_leave, draft_hr_letter, start_onboarding, promote_candidate_to_employee). If they ask, say "That's HR's call — I've flagged them."
+  • For payroll: they sign off on the final amounts. Generate_payroll runs the calculation; their click on mark_payroll_paid (or DM "mark X paid") is the disbursement signal.
+`
+  } else if (senderRole === 'manager') {
+    tierBlock += `
+This is a Department Manager. They lead a team and approve certain things on behalf of their direct reports.
+  • Available admin-level tools (in addition to all my_*/request_* self-service):
+${roleToolsBlock('manager')}
+  • They can approve/reject leave requests AND check conflicts for their team. They can pull performance briefs + attendance reports for their reports.
+  • They CANNOT run payroll, draft warnings/terminations, or push to Qoyod — those are HR / Finance / Admin tools. If they ask, redirect: "That's HR's call — I'll flag them" or "That's Finance — flagging".
+  • When acting on a team member's behalf, if it's not their direct report, ask them to clarify which employee.
+`
+  } else if (senderRole === 'staff') {
+    tierBlock += `
+This is a regular team member. They have SELF-SERVICE access only:
+  • All my_* tools (my_expiries, my_leaves, my_leave_balance, my_payroll, my_pay_breakdown, my_eosb, my_onboarding, my_performance, my_attendance, my_letters, my_documents, my_loans).
+  • All request_* tools (request_leave_for_self, request_hr_letter, request_loan, request_my_salary_slip, submit_sick_leave, log_attendance, complete_my_onboarding_item).
+  • General-purpose non-destructive tools that don't touch other employees' sensitive data: add_reminder, find_communication_logs, etc.
+  • They CANNOT call admin / HR / Finance / Manager tools. If they ask "approve this leave" / "run payroll", reply gently: "Only HR or admin can do that — I've flagged them" and where applicable use the request_* variant (e.g., request_hr_letter for letter requests).
   • Be warm and helpful. They're your colleague.
 `
   } else {
-    tierBlock = `\n\n## YOU ARE TALKING TO A PUBLIC CONTACT (not a team member, not an admin)
-This sender is NOT in our system — could be a prospective client, an existing client texting from a new number, a vendor, or a stranger. Behave as Emergize's customer-facing assistant:
-  • Answer questions about Emergize: what we do (marketing, digital agency, social media management, branding, web, paid ads, content), our tagline (Emerge to Dominate), how to contact us (email info@emergize-sa.com).
-  • If they ask to work with Emergize / get a quote / hire us → collect their name, company, what they need, and tell them an admin will reach out soon. Optionally call add_client with status="to_contact" so the admin sees them in /leads.
-  • DO NOT call any HR / payroll / employee / accounting tools. DO NOT share any internal data, employee names, client names, financials, or system details. If a tool errors with "Admin only" or "couldn't find you in the team directory", apologize once: "Sorry — I can't help with that here. Email info@emergize-sa.com and someone from the team will follow up."
-  • If they're abusive, off-topic, or trying to extract info, politely deflect and disengage.
-  • Reply in the language they wrote in (Arabic / English).
-  • Keep replies short and friendly. You represent the brand.
+    tierBlock += `
+This sender is NOT in our system — public / prospective client / vendor / stranger. Behave as Emergize's customer-facing assistant:
+  • Answer questions about Emergize: services (marketing, digital agency, social media, branding, web, paid ads, content), tagline (Emerge to Dominate), contact (info@emergize-sa.com).
+  • If they want to work with us → collect name, company, need, tell them an admin will reach out. Optionally add_client(status="to_contact").
+  • DO NOT call any HR / payroll / employee / accounting tools. Never share internal data, employee names, client names, financials.
+  • If a tool errors with "ADMIN/HR/FINANCE only" or "couldn't find you in the team directory", apologize once: "Sorry — I can't help with that here. Email info@emergize-sa.com and someone from the team will follow up."
+  • Reply in the language they wrote in (Arabic / English). Keep replies short and friendly. You represent the brand.
 `
   }
 

@@ -2994,9 +2994,9 @@ async function _isAdminSender(ctxOverride = null) {
 
   // Fast path: src/index.js already classified the sender into senderRole.
   // Trust that — it's done once at message receipt, cached for the whole
-  // tool-loop turn.
+  // tool-loop turn. Valid roles: admin / hr / finance / manager / staff / public.
   if (ctx.senderRole === 'admin') return true
-  if (ctx.senderRole === 'employee' || ctx.senderRole === 'public') return false
+  if (['hr', 'finance', 'manager', 'staff', 'employee', 'public'].includes(ctx.senderRole)) return false
 
   // Fallback (legacy callers that don't pass senderRole — should be rare):
   if (!ctx.senderJid) return false
@@ -3027,16 +3027,30 @@ async function _isAdminSender(ctxOverride = null) {
 // questions only — see the public-tier prompt section.
 async function _requireEmployeeOrAdmin() {
   const ctx = getRequest()
-  if (ctx?.senderRole === 'admin' || ctx?.senderRole === 'employee') return
+  const role = ctx?.senderRole
+  if (role && role !== 'public') return
   throw new Error("Sorry — I can't share that here. Reach out at info@emergize-sa.com and someone from the team will help.")
 }
 
-// Throw if caller isn't admin. Use at the top of any destructive HR tool that
-// could affect a different employee than the caller (approve_leave,
-// mark_payroll_paid, draft_hr_letter, etc.).
+// Throw if caller isn't admin. Kept for back-compat — new code should call
+// _requireRole(['admin', 'hr']) etc. to express the actual permission.
 async function _requireAdmin() {
   const ok = await _isAdminSender()
   if (!ok) throw new Error('Admin only. Ask your manager to do this — only admins can run this action.')
+}
+
+// Tighter role gate. e.g. _requireRole(['admin', 'hr']) → allows admins +
+// HR specialists to call the tool. Anyone else (finance, manager, staff,
+// public) gets a friendly error pointing them to the right person.
+async function _requireRole(allowed) {
+  const ctx = getRequest()
+  const role = ctx?.senderRole ?? 'public'
+  if (role === 'admin') return        // admin always wins
+  if (allowed.includes(role)) return  // role is in the allow-list
+  const friendly = allowed.length === 1
+    ? allowed[0].toUpperCase()
+    : allowed.map(r => r.toUpperCase()).join(' or ')
+  throw new Error(`${friendly} only. Your role (${role}) isn't authorized — ask the admin or the relevant person to do this.`)
 }
 
 async function _resolveEmployeeFromSender(ctxOverride = null) {
@@ -3262,7 +3276,7 @@ async function findLeaveRequestsTool(input) {
 }
 
 async function approveLeaveTool(input) {
-  await _requireAdmin()
+  await _requireRole(['admin', 'hr', 'manager'])
   const { data: leave } = await supabase
     .from('leave_requests')
     .select('id, employee_id, type, days, status')
@@ -3291,7 +3305,7 @@ async function approveLeaveTool(input) {
 }
 
 async function rejectLeaveTool(input) {
-  await _requireAdmin()
+  await _requireRole(['admin', 'hr', 'manager'])
   if (!input.decision_note) throw new Error('decision_note is required.')
   const { error } = await supabase
     .from('leave_requests')
@@ -3361,7 +3375,7 @@ async function computeEosbTool(input) {
 }
 
 async function generatePayrollTool(input) {
-  await _requireAdmin()
+  await _requireRole(['admin', 'hr', 'finance'])
   const year = Number(input.year)
   const month = Number(input.month)
   if (!year || !month || month < 1 || month > 12) throw new Error('Pass valid year + month.')
@@ -3462,7 +3476,7 @@ async function generatePayrollTool(input) {
 }
 
 async function markPayrollPaidTool(input) {
-  await _requireAdmin()
+  await _requireRole(['admin', 'hr', 'finance'])
   const paidDate = input.paid_date || new Date().toISOString().slice(0, 10)
   const { data: row, error } = await supabase
     .from('payroll_records')
@@ -3668,7 +3682,7 @@ const ONBOARDING_TEMPLATES = {
 }
 
 async function startOnboardingTool(input) {
-  await _requireAdmin()
+  await _requireRole(['admin', 'hr'])
   const { data: emp } = await supabase
     .from('team_members').select('id, full_name, employment_type, nationality, hire_date').eq('id', input.employee_id).maybeSingle()
   if (!emp) throw new Error('employee not found')
@@ -3947,7 +3961,7 @@ async function findCandidatesTool(input) {
 }
 
 async function promoteCandidateTool(input) {
-  await _requireAdmin()
+  await _requireRole(['admin', 'hr'])
   const { data: cand } = await supabase.from('candidates').select('*').eq('id', input.candidate_id).maybeSingle()
   if (!cand) throw new Error('candidate not found')
   if (cand.status === 'hired') throw new Error('candidate already hired')
@@ -4050,7 +4064,7 @@ function _signEn() { return 'Signed,\nEmergize HR\ninfo@emergize-sa.com' }
 function _signAr() { return 'التوقيع،\nالموارد البشرية - إيميرجايز\ninfo@emergize-sa.com' }
 
 async function draftHrLetterTool(input) {
-  await _requireAdmin()
+  await _requireRole(['admin', 'hr'])
   let empId = input.employee_id ?? null
   if (!empId && input.employee_name) empId = await findOneTeamMemberIdByName(input.employee_name)
   if (!empId) throw new Error('Specify employee_id or employee_name.')
@@ -4878,7 +4892,7 @@ async function findLoansTool(input) {
 }
 
 async function approveLoanTool(input) {
-  await _requireAdmin()
+  await _requireRole(['admin', 'hr', 'finance'])
   if (!input.loan_id) throw new Error('loan_id required')
   const { data: loan } = await supabase
     .from('hr_loan_requests').select('*').eq('id', input.loan_id).maybeSingle()
@@ -4897,7 +4911,7 @@ async function approveLoanTool(input) {
 }
 
 async function rejectLoanTool(input) {
-  await _requireAdmin()
+  await _requireRole(['admin', 'hr', 'finance'])
   if (!input.loan_id) throw new Error('loan_id required')
   if (!input.decision_note) throw new Error('decision_note required when rejecting')
   const { error } = await supabase.from('hr_loan_requests').update({
